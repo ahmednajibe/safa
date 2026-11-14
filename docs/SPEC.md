@@ -95,3 +95,9 @@ Arabic filename + spaces; 60 s noisy speech+music fixture; 10 s mp4; long (≥30
 - Job records `requested_device`, and per stage `actual_device` + `fallback_reason`; progress events include the actual device.
 - Settings are **snapshotted at submission**; changing the choice affects only new jobs; Retry reuses the snapshot. The UI remembers the last choice in `localStorage`.
 - **Estimates:** `backend/pipeline/estimates.py` holds per-engine real-time factors per device from `docs/FEASIBILITY.md` (rough), `estimate_seconds(duration_s, ops, device) -> (low, high)`; UI shows coarse buckets only ("Under a minute", "About 2 min", "About 10 min", "Over 30 min"), labelled as estimates; after fallback the estimate is dropped ("Estimating…"). Later milestones may refine factors from completed jobs.
+
+## 10. Cut silence = remove silence (user clarification 2026-11-15)
+- The `silence` op is named **"Cut silence"** and its default action is **remove**: every silent part longer than `min_silence_s` (default **0.3 s**) is removed completely; `pad_s` (default **0.1 s**) of audio is kept on each side of speech so syllables aren't clipped. Result = only the speech, joined with the 10 ms boundary fades from §8.
+- Params: `action` select `remove` ("Remove silence", default) | `shorten` ("Shorten pauses"); `min_silence_s` 0.3 (0.1–3.0, label "Shortest silence to cut"); `pad_s` 0.1 (0–0.5, advanced, label "Keep around speech"); `keep_pause_s` 0.25 (only for shorten, label "Pause length after shortening"); `mode` vad | amplitude; `threshold_db` −40 (amplitude only, advanced).
+- Leading and trailing silence are always removed in `remove` mode.
+- Presets "Podcast cleanup", "Lecture" and "Video jump-cut" use `action: remove`.

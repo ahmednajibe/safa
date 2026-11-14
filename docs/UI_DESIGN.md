@@ -138,12 +138,12 @@ Mark (simple amber-free white monogram: a waveform-in-square glyph, 20px) + "Sou
 | declick | Remove clicks and pops | Smooths mouth clicks, crackles and sharp ticks. |
 | enhance | Polish voice | Balances tone, softens harsh "s" sounds and evens out loud and quiet words. |
 | enhance_ai | Restore damaged voice | Tries to rebuild muffled or badly recorded speech (experimental). |
-| silence | Shorten pauses | Tightens long gaps while leaving natural breathing room. |
+| silence | Cut silence | Removes the silent parts so only the speech is left (or just shortens long pauses). |
 | speed | Change speed | Faster or slower without the chipmunk effect. |
 | loudness | Even out volume | Sets a steady listening level (Podcast −16 / YouTube −14) and stops clipping. |
 | subtitles | Create subtitles | Writes timed captions (SRT/VTT) from the final audio. |
 
-Param labels lead with outcome: "Strength", "Hum frequency 50 Hz / 60 Hz", "Longest pause to keep", "Target: Podcast / YouTube / Custom", with the technical value as a secondary readout.
+Param labels lead with outcome: "Strength", "Hum frequency 50 Hz / 60 Hz", "Shortest silence to cut", "Target: Podcast / YouTube / Custom", with the technical value as a secondary readout.
 
 ## 8. Keyboard & accessibility
 - **Decided (A/B hotkey):** Tab stays normal focus navigation (Astra + web-design-guidelines). Shortcuts, disabled while typing: `Space` play/pause, `A` original, `B` processed (also toggles), `←/→` seek 5 s, `P` play preview region, `[`/`]` nudge region 0.5 s, `Esc` close drawer/menu. Shortcuts listed in a `?` popover.
