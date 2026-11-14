@@ -27,6 +27,12 @@
 
 ---
 
+### Task 0: M3a review fixes (do these first, test-first)
+**Files:** `backend/api/media.py`, `tests/test_api_media.py`, `docs/SPEC.md` §5 (update the upload line).
+1. **True streaming upload.** Starlette's `UploadFile` spools the whole multipart body into a temp file in `%TEMP%` (system drive C:) before the handler runs → double disk use and the disk check comes too late. Change `POST /api/media` to accept the **raw request body** (`Content-Type: application/octet-stream`) with the original filename in the `X-Filename` header (percent-encoded UTF-8, decode with `urllib.parse.unquote`), streamed with `async for chunk in request.stream()` straight into `original.<ext>`. Disk check from `Content-Length` before reading. Keep all existing error codes. Update all upload tests to the new form; add `test_upload_does_not_use_system_temp` (monkeypatch `tempfile.gettempdir`/`SpooledTemporaryFile` or assert no multipart parsing happens) and `test_upload_filename_header_arabic`.
+2. **Don't block the event loop:** run `probe()`, disk checks and DB writes in `starlette.concurrency.run_in_threadpool` inside the async handler.
+3. **Surface prep failures:** `_prepare` records `{"prep_error": "<short message>"}` into `probe_json` on exception (and logs the traceback to `data/media/<id>/prep.log`); `GET /api/media/{id}` returns `"ready": {..., "error": str|null}` and `/peaks` returns 500 `{"code":"prep_failed","message":"We couldn't read the audio in this file."}` instead of 202 forever. Test with a monkeypatched `decode_to_wav` that raises.
+
 ### Task 1: Job store + DB migration
 **Files:** Create `backend/jobs/__init__.py`, `backend/jobs/models.py`, `backend/jobs/store.py`; modify `backend/db.py`; tests `tests/test_job_store.py`.
 
