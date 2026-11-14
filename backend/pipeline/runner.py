@@ -1,19 +1,26 @@
-"""Pipeline runner skeleton (M3a): decode → ops → encode → optional remux.
+"""Pipeline runner: decode → ops (IMPLEMENTATIONS dispatch) → encode → remux.
 
-Ops are a dispatch table of stage functions; none are implemented yet, so any
-op id raises NotImplementedError at its stage. The job system (M3b) calls
-``run_pipeline`` from the worker subprocess.
+Each op is an ``OpFn`` looked up in ``backend.operations.impl.IMPLEMENTATIONS``;
+unimplemented ids still raise ``NotImplementedError`` at their stage. Op
+progress/cancel/messages flow through ``OpContext.report``/``should_cancel``;
+the previous intermediate is deleted after each successful op stage. The job
+system (M3b) calls ``run_pipeline`` from the worker subprocess.
 """
 from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Callable
+
+import soundfile as sf
 
 from backend.core.capabilities import detect_capabilities
 from backend.media.decode import decode_to_wav
 from backend.media.encode import encode_audio, remux_video
 from backend.media.probe import MediaProbe
 from backend.media.storage import sanitize_stem
+from backend.operations.base import OpContext
+from backend.operations.impl import IMPLEMENTATIONS
 from backend.operations.registry import OPERATIONS
 from backend.pipeline.device import resolve_device
 from backend.pipeline.types import (
@@ -25,6 +32,10 @@ from backend.pipeline.types import (
     Progress,
     ProgressCb,
 )
+
+# A stage's emit(): report(stage_pct 0..1 | None, message | None,
+# device | None). Bound to one stage's name/idx by the loop below.
+StageEmit = Callable[[float | None, str | None, str | None], None]
 
 
 def _op_stage_name(op_id: str) -> str:
@@ -47,6 +58,7 @@ def run_pipeline(
     should_cancel: CancelCheck,
     preview: tuple[float, float] | None = None,
     device: JobDevice = "gpu",
+    display_name: str | None = None,
 ) -> list[OutputFile]:
     """Run the pipeline; returns output files in ``job_root/output/``."""
     media_path = Path(media_path)
@@ -58,13 +70,37 @@ def run_pipeline(
 
     caps = detect_capabilities()
     src_wav = work / "source.wav"
-    stem = sanitize_stem(media_path.stem)
+    stem = sanitize_stem(display_name or media_path.stem)
     suffix = "preview" if preview is not None else "clean"
     want_video = probe.has_video and output.keep_video and preview is None
 
     outputs: list[OutputFile] = []
+    current = {"wav": src_wav}
+    total = 2 + len(ops) + (1 if want_video else 0)
 
-    def _decode() -> None:
+    def _emit(name: str, idx: int, dev: str) -> StageEmit:
+        def emit(
+            pct: float | None = None,
+            msg: str | None = None,
+            dev_actual: str | None = None,
+        ) -> None:
+            on_progress(
+                Progress(
+                    stage=name,
+                    stage_idx=idx,
+                    total_stages=total,
+                    stage_pct=pct,
+                    overall_pct=(
+                        (idx + min(pct or 0.0, 1.0)) / total
+                    ),
+                    device=dev_actual or dev,
+                    message=msg,
+                )
+            )
+
+        return emit
+
+    def _decode(_emit_fn: StageEmit) -> None:
         start_s = preview[0] if preview else None
         end_s = preview[1] if preview else None
         decode_to_wav(
@@ -72,44 +108,76 @@ def run_pipeline(
             start_s=start_s, end_s=end_s,
         )
 
-    def _save_audio() -> None:
+    def _save_audio(_emit_fn: StageEmit) -> None:
         dst = encode_audio(
-            src_wav, out_dir / f"{stem}_{suffix}", output.audio_format
+            current["wav"], out_dir / f"{stem}_{suffix}", output.audio_format
         )
         outputs.append(
             OutputFile(dst.name, "audio", dst, dst.stat().st_size)
         )
 
-    def _remux() -> None:
+    def _remux(_emit_fn: StageEmit) -> None:
         v = probe.video[0]
-        dst = remux_video(media_path, v.index, src_wav,
+        dst = remux_video(media_path, v.index, current["wav"],
                           out_dir / f"{stem}_{suffix}", v.codec)
         outputs.append(
             OutputFile(dst.name, "video", dst, dst.stat().st_size)
         )
 
-    stages: list[tuple[str, str, object]] = [("Reading file", "cpu", _decode)]
+    def _op_stage(
+        op_id: str, params: dict, dev: JobDevice
+    ) -> Callable[[StageEmit], None]:
+        def _stage(emit: StageEmit) -> None:
+            fn = IMPLEMENTATIONS.get(op_id)
+            if fn is None:
+                _not_impl(op_id)
+            prev = current["wav"]
+            info = sf.info(prev)
+            ctx = OpContext(
+                work_dir=work,
+                device=dev,
+                duration_s=info.frames / info.samplerate,
+                sample_rate=info.samplerate,
+                channels=info.channels,
+                report=lambda p, m: emit(p, m),
+                should_cancel=should_cancel,
+                caps=caps,
+            )
+            result = fn(prev, params or {}, ctx)
+            out_wav = Path(result.path)
+            if not out_wav.is_file():
+                raise RuntimeError(f"operation {op_id} produced no output")
+            # Report the device's reality + any op message/fallback reason
+            # (SPEC §9: worker persists actual_device via this Progress row).
+            emit(
+                1.0,
+                result.message or result.fallback_reason,
+                result.actual_device,
+            )
+            if prev != out_wav and prev.parent == work:
+                prev.unlink(missing_ok=True)  # previous intermediate dies
+            current["wav"] = out_wav
+            outputs.extend(result.extra_outputs)
+
+        return _stage
+
+    stages: list[tuple[str, str, Callable[[StageEmit], None]]] = [
+        ("Reading file", "cpu", _decode)
+    ]
     for op_id, params in ops:
         dev = resolve_device(device, op_id, params or {}, caps)
-        stages.append(
-            (_op_stage_name(op_id), dev,
-             (lambda oid: lambda: _not_impl(oid))(op_id))
-        )
+        stages.append((_op_stage_name(op_id), dev, _op_stage(op_id, params, dev)))
     stages.append(("Saving audio", "cpu", _save_audio))
     if want_video:
         stages.append(("Rebuilding video", "cpu", _remux))
 
-    total = len(stages)
+    assert len(stages) == total
     for idx, (name, dev, fn) in enumerate(stages):
         if should_cancel():
             raise CancelledError()
-        on_progress(
-            Progress(
-                stage=name, stage_idx=idx, total_stages=total,
-                stage_pct=0.0, overall_pct=idx / total, device=dev,
-            )
-        )
-        fn()  # type: ignore[operator]
+        emit = _emit(name, idx, dev)
+        emit(0.0)
+        fn(emit)
 
     on_progress(
         Progress(

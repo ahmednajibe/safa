@@ -362,6 +362,36 @@ def test_full_flow_real_recording(tmp_path, real_dir):
         assert dl.content == stored
 
 
+def test_job_output_uses_display_filename(tmp_path, real_dir):
+    """M4a Task 0 regression: output files must be named from the upload's
+    display filename (media.filename), not the stored ``original.<ext>``
+    path — ``تسجيل (3).m4a`` → ``تسجيل (3)_clean.flac``."""
+    c = _client(tmp_path)
+    with c:  # lifespan: real supervisor + worker subprocess
+        mid = _upload(
+            c, real_dir / "Recording (3).m4a", name="تسجيل (3).m4a"
+        )
+        r = _post_job(
+            c, mid,
+            output={"audio_format": "flac", "keep_video": False},
+        )
+        assert r.status_code == 201, r.text
+        jid = r.json()["id"]
+
+        events = _collect_sse(c, jid)
+        assert events[-1][1]["state"] == "completed"
+
+        info = c.get(f"/api/jobs/{jid}").json()
+        names = [f["name"] for f in info["files"]]
+        assert names == ["تسجيل (3)_clean.flac"]
+
+        dl = c.get(f"/api/jobs/{jid}/files/" + quote("تسجيل (3)_clean.flac"))
+        assert dl.status_code == 200
+        cd = dl.headers["content-disposition"]
+        assert "filename*=UTF-8''" in cd
+        assert quote("تسجيل (3)_clean.flac") in cd
+
+
 def test_preview_job_returns_audio_only(tmp_path):
     c = _client(tmp_path)
     with c:

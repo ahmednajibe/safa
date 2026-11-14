@@ -52,14 +52,14 @@ def _settings():
 
 
 def _load_media(db_path: Path, media_id: str):
-    """(media_path, MediaProbe) from the media row; None when the row is gone."""
+    """(media_path, MediaProbe, filename) from the media row; None when gone."""
     from backend.db import connect
     from backend.media.probe import AudioStream, MediaProbe, VideoStream
 
     con = connect(db_path)
     try:
         row = con.execute(
-            "SELECT stored_path, probe_json FROM media WHERE id=?",
+            "SELECT stored_path, filename, probe_json FROM media WHERE id=?",
             (media_id,),
         ).fetchone()
     finally:
@@ -77,7 +77,7 @@ def _load_media(db_path: Path, media_id: str):
         audio=[AudioStream(**a) for a in d.get("audio") or []],
         video=[VideoStream(**v) for v in d.get("video") or []],
     )
-    return Path(row["stored_path"]), p
+    return Path(row["stored_path"]), p, row["filename"] or ""
 
 
 def _short_error(exc: BaseException) -> str:
@@ -145,7 +145,7 @@ def main(argv: list[str]) -> int:
         media = _load_media(settings.db_path, job.media_id)
         if media is None:
             raise RuntimeError("The uploaded file is gone.")
-        media_path, media_probe = media
+        media_path, media_probe, media_filename = media
 
         ops = [(o["id"], o["params"]) for o in job.ops]
         output = OutputSpec(
@@ -187,6 +187,7 @@ def main(argv: list[str]) -> int:
             should_cancel=lambda: store.cancel_requested(job_id),
             preview=preview,
             device=job.requested_device,
+            display_name=media_filename,
         )
         for f in outputs:
             store.add_file(job_id, f)

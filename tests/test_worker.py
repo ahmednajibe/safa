@@ -108,14 +108,14 @@ def test_worker_failing_op_marks_failed(tmp_path, monkeypatch):
     db, data = _setup(tmp_path, monkeypatch)
     _media(db, "m1", ARABIC_WAV)
     store = JobStore(db)
-    j = _job(store, "m1", ops=[("loudness", {"target": "podcast"})])
+    j = _job(store, "m1", ops=[("trim", {"start_s": 1.0})])
 
     rc = worker_main([j.id])
 
     assert rc == 1
     got = store.get(j.id)
     assert got.state == "failed"
-    assert got.error and "loudness" in got.error
+    assert got.error and "trim" in got.error
     log = data / "jobs" / j.id / "worker.log"
     assert log.is_file()
     assert "NotImplementedError" in log.read_text(encoding="utf-8")
