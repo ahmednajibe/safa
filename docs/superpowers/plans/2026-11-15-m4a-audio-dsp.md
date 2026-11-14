@@ -27,6 +27,9 @@
 
 ---
 
+### Task 0: Bug from M3b review (fix first, test-first)
+Output files are named `original_clean.<ext>` instead of `<user's file stem>_clean.<ext>`: the worker passes the stored path `data/media/<id>/original.<ext>`, and the runner derives the stem from that path. Reproduced via the API with an upload named `تسجيل (3).m4a` → download name `original_clean.flac`. Fix: pass the media's display filename (DB `media.filename`) into `run_pipeline` (new param `display_name: str`) and derive the stem from it with `sanitize_stem`. Add an API-level regression test: upload with `X-Filename` = percent-encoded `تسجيل (3).m4a`, run an empty-ops job, assert the registered file name is `تسجيل (3)_clean.<ext>` and the download `Content-Disposition` carries it (percent-encoded). Preview jobs: `<stem>_preview.<ext>`.
+
 ### Task 1: Op interface + ffmpeg progress runner + runner wiring
 **Files:** Create `backend/operations/base.py`, `backend/operations/impl/__init__.py`, `backend/media/ffmpeg_run.py`; modify `backend/pipeline/runner.py`; tests `tests/test_op_base.py`.
 
