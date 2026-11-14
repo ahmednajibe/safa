@@ -66,7 +66,7 @@ Single-page dark studio:
 3. Operation cards in execution order, toggle + 1–3 simple controls each, conflict hints.
 4. Waveform with draggable preview region → "Preview" button.
 5. Stage stepper with progress, ETA, GPU/CPU badge, cancel.
-6. Result: A/B toggle (hotkey Tab, keeps playhead) on waveform + video element, cut regions highlighted, downloads (MP4, WAV, FLAC, MP3, SRT, stems).
+6. Result: A/B toggle (hotkeys A/B, keeps playhead; see docs/UI_DESIGN.md) on waveform + video element, cut regions highlighted, downloads (MP4, WAV, FLAC, MP3, SRT, stems).
 7. History list (past jobs, re-download, delete).
 
 ## 7. Acceptance
