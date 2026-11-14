@@ -10,4 +10,5 @@ frontend/dist/
 tests/fixtures/generated/
 *.err.txt
 .orchestrator/
+.superpowers/
 tests/fixtures/real/

@@ -1,0 +1,136 @@
+{
+  "machine": {
+    "gpu": {
+      "name": "NVIDIA GeForce GTX 1650",
+      "total_mb": 4096,
+      "used_mb": 0,
+      "driver": "610.88"
+    },
+    "torch": "2.5.1+cu124",
+    "cuda_dll_dirs": [
+      "F:\\sound_system\\.venv\\Lib\\site-packages\\nvidia\\cublas\\bin",
+      "F:\\sound_system\\.venv\\Lib\\site-packages\\nvidia\\cuda_nvrtc\\bin",
+      "F:\\sound_system\\.venv\\Lib\\site-packages\\nvidia\\cuda_runtime\\bin",
+      "F:\\sound_system\\.venv\\Lib\\site-packages\\nvidia\\cudnn\\bin",
+      "F:\\sound_system\\.venv\\Lib\\site-packages\\nvidia\\cufft\\bin",
+      "F:\\sound_system\\.venv\\Lib\\site-packages\\nvidia\\curand\\bin",
+      "F:\\sound_system\\.venv\\Lib\\site-packages\\nvidia\\cusolver\\bin",
+      "F:\\sound_system\\.venv\\Lib\\site-packages\\nvidia\\cusparse\\bin",
+      "F:\\sound_system\\.venv\\Lib\\site-packages\\nvidia\\nvjitlink\\bin"
+    ]
+  },
+  "results": [
+    {
+      "name": "ffmpeg",
+      "device": "cpu",
+      "ok": true,
+      "seconds": 0.18,
+      "peak_vram_mb": 0,
+      "note": "ffmpeg version 7.1.1-essentials_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers; h264_nvenc=yes"
+    },
+    {
+      "name": "torch_cuda",
+      "device": "cpu",
+      "ok": true,
+      "seconds": 0.19,
+      "peak_vram_mb": 0,
+      "note": "torch 2.5.1+cu124 cpu matmul"
+    },
+    {
+      "name": "torch_cuda",
+      "device": "gpu",
+      "ok": true,
+      "seconds": 0.35,
+      "peak_vram_mb": 87,
+      "note": "NVIDIA GeForce GTX 1650; alloc=12MB"
+    },
+    {
+      "name": "deepfilternet3",
+      "device": "cpu",
+      "ok": true,
+      "seconds": 0.88,
+      "peak_vram_mb": 0,
+      "note": "noise-head RMS 0.0508 -> 0.0033; len ok"
+    },
+    {
+      "name": "deepfilternet3",
+      "device": "gpu",
+      "ok": true,
+      "seconds": 0.64,
+      "peak_vram_mb": 106,
+      "note": "noise-head RMS 0.0508 -> 0.0033; len ok"
+    },
+    {
+      "name": "demucs_htdemucs",
+      "device": "cpu",
+      "ok": true,
+      "seconds": 20.54,
+      "peak_vram_mb": 0,
+      "note": "segment=7 stems: speech_music_(Bass)_htdemucs.wav, speech_music_(Drums)_htdemucs.wav, speech_music_(Other)_htdemucs.wav, speech_music_(Vocals)_htdemucs.wav"
+    },
+    {
+      "name": "demucs_htdemucs",
+      "device": "gpu",
+      "ok": true,
+      "seconds": 2.96,
+      "peak_vram_mb": 522,
+      "note": "segment=7 stems: speech_music_(Bass)_htdemucs.wav, speech_music_(Drums)_htdemucs.wav, speech_music_(Other)_htdemucs.wav, speech_music_(Vocals)_htdemucs.wav"
+    },
+    {
+      "name": "mdx_kim_vocal_2",
+      "device": "cpu",
+      "ok": true,
+      "seconds": 14.93,
+      "peak_vram_mb": 0,
+      "note": "provider=['CPUExecutionProvider'] stems: speech_music_(Instrumental)_Kim_Vocal_2.wav, speech_music_(Vocals)_Kim_Vocal_2.wav"
+    },
+    {
+      "name": "mdx_kim_vocal_2",
+      "device": "gpu",
+      "ok": true,
+      "seconds": 3.13,
+      "peak_vram_mb": 2306,
+      "note": "provider=['CUDAExecutionProvider'] stems: speech_music_(Instrumental)_Kim_Vocal_2.wav, speech_music_(Vocals)_Kim_Vocal_2.wav"
+    },
+    {
+      "name": "silero_vad",
+      "device": "cpu",
+      "ok": true,
+      "seconds": 0.88,
+      "peak_vram_mb": 0,
+      "note": "gaps [[5.2, 8.3], [13.5, 18.5]] match recorded [[5.22, 8.22], [13.44, 18.44]]"
+    },
+    {
+      "name": "pedalboard_chain",
+      "device": "cpu",
+      "ok": true,
+      "seconds": 0.2,
+      "peak_vram_mb": 0,
+      "note": "chain ok, out RMS 0.0976 (in 0.0984)"
+    },
+    {
+      "name": "ffmpeg_deesser_loudnorm",
+      "device": "cpu",
+      "ok": true,
+      "seconds": 0.57,
+      "peak_vram_mb": 0,
+      "note": "integrated -16.8 LUFS (target -16 \u00b11)"
+    },
+    {
+      "name": "faster_whisper_small",
+      "device": "cpu",
+      "ok": true,
+      "seconds": 13.76,
+      "peak_vram_mb": 0,
+      "note": "[en p=1.00] 'the quick brown fox jumps over the lazy dog.  sound system test number one.'"
+    },
+    {
+      "name": "faster_whisper_small",
+      "device": "gpu",
+      "ok": true,
+      "seconds": 2.87,
+      "peak_vram_mb": 584,
+      "note": "[en p=1.00] 'the quick brown fox jumps over the lazy dog.  sound system test number one.' (compute=int8_float32)"
+    }
+  ]
+}
