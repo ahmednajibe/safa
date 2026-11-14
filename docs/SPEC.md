@@ -1,6 +1,6 @@
 # Sound System — Final Spec
 
-Merged from three proposals (`docs/brainstorm/astra.md`, `argon.md`, `claude.md`).
+Merged from three proposals (`docs/brainstorm/astra.md`, `argon.md`, `opus_proposal.md`).
 Local-only web app: upload audio/video → pick operations → pipeline runs → download results.
 
 ## 1. Target machine
