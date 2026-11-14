@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tools/
+data/
+models/
+node_modules/
+frontend/dist/
+tests/fixtures/generated/
+*.err.txt
