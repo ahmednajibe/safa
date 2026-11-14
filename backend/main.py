@@ -7,7 +7,9 @@ from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.api.estimate import router as estimate_router
 from backend.api.health import router as health_router
+from backend.api.media import router as media_router
 from backend.api.operations import router as operations_router
 from backend.core.models_manifest import configure_model_env
 from backend.core.paths import ROOT
@@ -79,8 +81,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _prepend_ffmpeg_dir()
     init_db(s.db_path)
     app = FastAPI(title="Sound System")
+    app.state.settings = s
     app.include_router(health_router)
     app.include_router(operations_router)
+    app.include_router(media_router)
+    app.include_router(estimate_router)
     _mount_spa(app)
     return app
 
