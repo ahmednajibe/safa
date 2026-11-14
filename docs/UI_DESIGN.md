@@ -103,7 +103,7 @@ Chips: Podcast cleanup · Remove background music · Fix echoey room · Lecture 
 - **Disabled by conflict:** stays in place, 50% content opacity, switch locked, warning pill + reason: "Off while Karaoke is on: noise reduction works on speech."
 - **Unavailable:** three distinct reasons — "Not available on this computer", "Model not downloaded yet — connect to the internet once", "Coming later". Neutral pill, switch disabled.
 - Denoiser engine = radio group inside the denoise card (AI / Classic).
-- Device tag shows expected device before run and actual during run; CPU fallback shows warning pill "GPU memory full — running on CPU".
+- Device tag shows expected device before run (from the dock's Run on choice + the step's own "Run on" advanced override: Use job setting / GPU / CPU) and actual during run; CPU fallback shows warning pill "GPU memory full — running on CPU".
 
 ### Waveform well (wavesurfer.js, peaks from backend)
 - Original waveform `--wave-original`; processed waveform `--data` amber. Before processing, only original. After, **Decided:** A/B switch swaps which waveform is in front (the other drawn at 35% behind) and which audio plays.
@@ -115,7 +115,7 @@ Chips: Podcast cleanup · Remove background music · Fix echoey room · Lecture 
 Play/pause (40px round raised), timecode `00:12.40 / 42:18.00` tabular, segmented control **Original | Processed** (selected = white fill black text). Switching keeps the playhead, translated through the timeline map; inside a removed span it jumps to the next kept boundary and announces "Jumped to 0:41.2 — this part was removed".
 
 ### Dock
-- Idle: output format select, "Keep video" checkbox (video only), "Preview region" secondary, **Process** primary (disabled with reason tooltip until ≥1 step on).
+- Idle: output format select, "Keep video" checkbox (video only), **"Run on" segmented control: Auto · GPU · CPU** (GPU disabled with reason "No compatible graphics card found" when health.device is cpu; helper text under it on hover/focus: Auto = "Uses the graphics card when it helps, falls back to the processor", GPU = "Fastest", CPU = "Slower, keeps the graphics card free"), "Preview region" secondary, **Process** primary (disabled with reason tooltip until ≥1 step on).
 - Running: stage stepper "Step 3 of 5 · Reduce background noise", current-stage bar + overall %, ETA ("About 4 min left"; unknown → "Estimating…"; no % → "Working…" with indeterminate bar), device pill, "Cancel" ghost-negative. Queued → "Waiting for the current job to finish". Model download → "Downloading voice model (first time only) · 45%".
 - Done: primary "Download MP4" (or main audio), secondary pills for WAV/FLAC/MP3, SRT, VTT, Vocals, Music. Failed/interrupted: negative pill + one-line reason + "Retry" (settings kept).
 

@@ -85,3 +85,12 @@ Arabic filename + spaces; 60 s noisy speech+music fixture; 10 s mp4; long (≥30
 - **Fixtures:** besides synthetic tones, generate real speech via Windows SAPI (`System.Speech`) TTS with known text (for VAD + whisper tests), plus mixes: speech+noise, speech+music, speech with known silences, silence-only file, 10 s mp4, Arabic+spaces filename. Optional: a CC-BY LibriSpeech/LibriVox sample downloaded by script.
 - **Model manifest early (M1):** `backend/core/models_manifest.py` lists each model (name, source, filename, cache dir under `models/`, size, sha256 when known); all libraries pointed at `models/` (e.g. `HF_HOME`, DFN model dir, audio-separator `model_file_dir`, faster-whisper `download_root`). Offline mode: if model missing and no network → op reported unavailable, not crash.
 - **Real recordings:** `tests/fixtures/real/*.m4a` (user's own speech, 19–33 s, gitignored). Used as acceptance input from M3a onward and for the final end-to-end walkthrough; tests skip when absent.
+
+## 9. Processing device choice (user request, 2026-11-15)
+- Job-level `device`: `"auto" | "gpu" | "cpu"` (default `"auto"`). Stored on the job, shown in the UI.
+  - `auto`: GPU-capable ops use the GPU when `/api/health.device == "gpu"`; on OOM retry that stage on CPU (warning shown).
+  - `gpu`: same as auto but chosen explicitly; if no GPU is available the option is disabled in the UI and the API rejects it (422 `gpu_unavailable`). OOM still retries on CPU with a warning rather than failing the job.
+  - `cpu`: every op runs on CPU; GPU memory stays free for other programs.
+- Per-op override: every op with `device` `"gpu"` or `"gpu-optional"` gets an advanced param `run_on`: `"job" | "gpu" | "cpu"` (default `"job"` = follow the job setting).
+- Effective device per stage is resolved in one function `resolve_device(job_device, op_spec, op_params, gpu_available) -> "gpu" | "cpu"` and reported in progress (`device`) and the stepper.
+- CPU-only ops (ffmpeg / pedalboard / silero) ignore the setting.
