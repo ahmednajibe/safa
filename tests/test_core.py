@@ -37,3 +37,14 @@ def test_model_dirs_under_models():
 def test_configure_model_env_sets_hf_home():
     configure_model_env()
     assert Path(os.environ["HF_HOME"]).is_relative_to(MODELS_DIR)
+
+
+def test_configure_model_env_overrides_existing(monkeypatch):
+    """M1 review fix: a global user env var must not redirect model caches."""
+    monkeypatch.setenv("HF_HOME", r"C:\elsewhere\hf")
+    monkeypatch.setenv("TORCH_HOME", r"C:\elsewhere\torch")
+    configure_model_env()
+    assert Path(os.environ["HF_HOME"]).is_relative_to(MODELS_DIR)
+    assert Path(os.environ["HF_HUB_CACHE"]).is_relative_to(MODELS_DIR)
+    assert Path(os.environ["TORCH_HOME"]).is_relative_to(MODELS_DIR)
+    assert Path(os.environ["XDG_CACHE_HOME"]).is_relative_to(MODELS_DIR)

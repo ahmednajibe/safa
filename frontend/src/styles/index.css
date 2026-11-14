@@ -1,0 +1,205 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "./tokens.css";
+@import "tailwindcss";
+
+/* Tailwind v4 theme: every token maps to the CSS variables in tokens.css. */
+@theme {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-well: var(--well);
+  --color-rule: var(--rule);
+  --color-control: var(--control);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-data: var(--data);
+  --color-wave-original: var(--wave-original);
+  --color-negative: var(--negative);
+  --color-pill-negative-bg: var(--pill-negative-bg);
+  --color-pill-negative-ink: var(--pill-negative-ink);
+  --color-warning: var(--warning);
+  --color-pill-warning-bg: var(--pill-warning-bg);
+  --color-pill-warning-ink: var(--pill-warning-ink);
+  --color-positive: var(--positive);
+  --color-pill-positive-bg: var(--pill-positive-bg);
+  --color-pill-positive-ink: var(--pill-positive-ink);
+  --color-pill-neutral-bg: var(--pill-neutral-bg);
+  --color-pill-neutral-ink: var(--pill-neutral-ink);
+  --radius-panel: var(--radius-panel);
+  --radius-inner: var(--radius-inner);
+  --radius-control: var(--radius-control);
+  --radius-tag: var(--radius-tag);
+  --font-sans: "Inter", system-ui, "Segoe UI", sans-serif;
+  --text-title: var(--fs-title);
+  --text-section: var(--fs-section);
+  --text-figure: var(--fs-figure);
+  --text-body: var(--fs-body);
+  --text-small: var(--fs-small);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: "Inter", system-ui, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus ring: 2px white, offset 2, :focus-visible only (UI_DESIGN §3). */
+:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+/* ---------- Pills ---------- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  background: var(--pill-neutral-bg);
+  color: var(--pill-neutral-ink);
+}
+.pill-negative { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+.pill-warning { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+.pill-positive { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+
+/* ---------- Buttons ---------- */
+.btn-primary,
+.btn-secondary,
+.btn-ghost,
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--control-h);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-body);
+  border: 0;
+  cursor: pointer;
+  transition: transform var(--t-feedback) var(--ease),
+    background-color var(--t-feedback) var(--ease),
+    color var(--t-feedback) var(--ease),
+    opacity var(--t-feedback) var(--ease);
+}
+.btn-primary {
+  padding: 0 18px;
+  background: #ffffff;
+  color: #000000;
+  font-weight: 600;
+}
+.btn-secondary {
+  padding: 0 16px;
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 500;
+}
+.btn-ghost {
+  padding: 0 10px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+}
+.btn-ghost:hover { color: var(--text); }
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.chip:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn-secondary:hover:not(:disabled) { background: #333333; }
+
+.chip {
+  padding: 0 14px;
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 500;
+}
+.chip[aria-pressed="true"] {
+  background: #ffffff;
+  color: #000000;
+  font-weight: 600;
+}
+
+/* ---------- Scrollbars: thin + dark, every scroll area (Firefox + Chromium) ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a2a transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #444444;
+}
+
+/* ---------- Switch (white track + black knob when on; --control off) ---------- */
+.switch {
+  flex: none;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--control);
+  position: relative;
+  cursor: pointer;
+  transition: background-color var(--t-feedback) var(--ease),
+    opacity var(--t-feedback) var(--ease);
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform var(--t-disclose) var(--ease),
+    background-color var(--t-feedback) var(--ease);
+}
+.switch[aria-checked="true"] { background: #ffffff; }
+.switch[aria-checked="true"]::after {
+  transform: translateX(16px);
+  background: #000000;
+}
+.switch:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- Reduced motion: no height/sweep animation (UI_DESIGN §8) ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

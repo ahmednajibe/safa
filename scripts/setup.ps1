@@ -45,4 +45,23 @@ if (-not (Test-Path (Join-Path $FfmpegBin "ffprobe.exe"))) {
 
 & $FfmpegExe -version | Select-Object -First 1
 & (Join-Path $FfmpegBin "ffprobe.exe") -version | Select-Object -First 1
+
+$FrontendDir = Join-Path $Root "frontend"
+if (Test-Path $FrontendDir) {
+    Write-Host "== frontend build =="
+    Push-Location $FrontendDir
+    try {
+        if (Test-Path (Join-Path $FrontendDir "package-lock.json")) {
+            npm ci
+        } else {
+            npm install
+        }
+        if ($LASTEXITCODE -ne 0) { throw "npm install/ci failed ($LASTEXITCODE)" }
+        npm run build
+        if ($LASTEXITCODE -ne 0) { throw "npm run build failed ($LASTEXITCODE)" }
+    } finally {
+        Pop-Location
+    }
+}
+
 Write-Host "== setup done =="

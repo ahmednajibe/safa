@@ -78,7 +78,7 @@ def model_dir(name: str) -> Path:
 def configure_model_env() -> None:
     """Point every library cache at ``models/``. Call before ML imports."""
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("HF_HOME", str(MODELS_DIR / "huggingface"))
-    os.environ.setdefault("HF_HUB_CACHE", str(MODELS_DIR / "huggingface" / "hub"))
-    os.environ.setdefault("TORCH_HOME", str(MODELS_DIR / "torch"))
-    os.environ.setdefault("XDG_CACHE_HOME", str(MODELS_DIR / "xdg"))
+    os.environ["HF_HOME"] = str(MODELS_DIR / "huggingface")
+    os.environ["HF_HUB_CACHE"] = str(MODELS_DIR / "huggingface" / "hub")
+    os.environ["TORCH_HOME"] = str(MODELS_DIR / "torch")
+    os.environ["XDG_CACHE_HOME"] = str(MODELS_DIR / "xdg")

@@ -34,6 +34,22 @@ def _site_packages_dirs() -> list[Path]:
     return dirs
 
 
+def cuda_dll_dirs() -> list[Path]:
+    """Existing ``<site-packages>/nvidia/*/bin`` dirs. Read-only; never raises."""
+    dirs: list[Path] = []
+    try:
+        for sp in _site_packages_dirs():
+            nvidia = sp / "nvidia"
+            if not nvidia.is_dir():
+                continue
+            for child in sorted(nvidia.iterdir()):
+                if (child / "bin").is_dir():
+                    dirs.append(child / "bin")
+    except Exception:
+        pass
+    return dirs
+
+
 def setup_cuda_dlls() -> list[Path]:
     """Add every ``<site-packages>/nvidia/*/bin`` dir to the DLL search path.
 
@@ -42,21 +58,14 @@ def setup_cuda_dlls() -> list[Path]:
     """
     added: list[Path] = []
     try:
-        for sp in _site_packages_dirs():
-            nvidia = sp / "nvidia"
-            if not nvidia.is_dir():
-                continue
-            for child in sorted(nvidia.iterdir()):
-                bin_dir = child / "bin"
-                if not bin_dir.is_dir():
-                    continue
-                try:
-                    if hasattr(os, "add_dll_directory"):
-                        os.add_dll_directory(str(bin_dir))
-                except OSError:
-                    pass
-                os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
-                added.append(bin_dir)
+        for bin_dir in cuda_dll_dirs():
+            try:
+                if hasattr(os, "add_dll_directory"):
+                    os.add_dll_directory(str(bin_dir))
+            except OSError:
+                pass
+            os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+            added.append(bin_dir)
     except Exception:
         pass
     return added

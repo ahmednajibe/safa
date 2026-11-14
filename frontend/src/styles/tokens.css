@@ -1,0 +1,23 @@
+:root {
+  --ground: #000000;     /* page, top bar, dock: one ground */
+  --surface: #111111;    /* panels: ops rack, player panel */
+  --raised: #2a2a2a;     /* nested: expanded op body, inputs, chips */
+  --well: #0a0a0a;       /* waveform well (one step darker than surface) */
+  --rule: #1a1a1a;       /* the only 1px lines: list dividers inside panels, sticky bar when content scrolls under */
+  --control: #444444;    /* control outlines (inputs, unchecked switch track) */
+  --text: #ffffff;
+  --muted: #b4b4b4;      /* secondary text */
+  --faint: #949494;      /* meta (≥4.5:1 on --raised) */
+  --data: #f2b33d;       /* the ONE hue: processed waveform, processed progress fill */
+  --wave-original: #6b6b6b;
+  --negative: #e5484d;   --pill-negative-bg: #2c1a20; --pill-negative-ink: #e5566f;
+  --warning: #e5a93b;    --pill-warning-bg: #2b2414;  --pill-warning-ink: #e5a93b;
+  --positive: #7fd18b;   --pill-positive-bg: #17261a; --pill-positive-ink: #8fdc9a;
+  --pill-neutral-bg: #222222; --pill-neutral-ink: #ffffff;
+  --cut-fill: rgba(229, 72, 77, 0.14);  /* removed spans, drawn with 45° hatch */
+  --preview-fill: rgba(255,255,255,0.06); --preview-edge: #ffffff;
+  --radius-panel: 20px; --radius-inner: 12px; --radius-control: 999px; --radius-tag: 6px;
+  --gap: 14px; --pad: 22px; --control-h: 36px;
+  --fs-title: 20px; --fs-section: 16px; --fs-figure: 24px; --fs-body: 14px; --fs-small: 12px;
+  --ease: cubic-bezier(.2, 0, 0, 1); --t-feedback: 120ms; --t-disclose: 180ms;
+}
