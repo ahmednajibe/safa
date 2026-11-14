@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from backend.core.capabilities import Capabilities
+from backend.media.timeline import Timeline
 from backend.operations.registry import OPERATIONS
 from backend.pipeline.types import JobDevice, OutputFile
 
@@ -31,6 +32,12 @@ class OpContext:
     report: ReportFn
     should_cancel: Callable[[], bool]
     caps: Capabilities | None = None
+    # Video frame rate of the job's source (None for audio-only jobs or
+    # keep_video=False) — timeline ops snap cuts to this grid.
+    fps: float | None = None
+    # Timeline so far (source time → current output time); None means
+    # identity. Length-changing ops return the composed map in OpResult.
+    timeline: Timeline | None = None
 
 
 @dataclass
@@ -39,7 +46,7 @@ class OpResult:
     actual_device: JobDevice = "cpu"
     fallback_reason: str | None = None
     message: str | None = None
-    timeline: object | None = None
+    timeline: Timeline | None = None
     extra_outputs: list[OutputFile] = field(default_factory=list)
 
 

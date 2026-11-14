@@ -1,4 +1,4 @@
-"""Pipeline runner: decode → ops (IMPLEMENTATIONS dispatch) → encode → remux.
+"""Pipeline runner: decode → ops (IMPLEMENTATIONS dispatch) → encode → video.
 
 Each op is an ``OpFn`` looked up in ``backend.operations.impl.IMPLEMENTATIONS``;
 unimplemented ids still raise ``NotImplementedError`` at their stage. Op
@@ -8,6 +8,7 @@ system (M3b) calls ``run_pipeline`` from the worker subprocess.
 """
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -15,10 +16,13 @@ from typing import Callable
 import soundfile as sf
 
 from backend.core.capabilities import detect_capabilities
+from backend.core.ffmpeg import has_encoder
 from backend.media.decode import decode_to_wav
 from backend.media.encode import encode_audio, remux_video
 from backend.media.probe import MediaProbe
 from backend.media.storage import sanitize_stem
+from backend.media.timeline import Timeline
+from backend.media.video_render import render_video
 from backend.operations.base import OpContext
 from backend.operations.impl import IMPLEMENTATIONS
 from backend.operations.registry import OPERATIONS
@@ -75,7 +79,10 @@ def run_pipeline(
     want_video = probe.has_video and output.keep_video and preview is None
 
     outputs: list[OutputFile] = []
-    current = {"wav": src_wav}
+    # ``current`` threads the working wav + the composed timeline (source
+    # time → current output time) through the stages; set by _decode.
+    current = {"wav": src_wav, "timeline": None}
+    fps = probe.video[0].fps if want_video else None
     total = 2 + len(ops) + (1 if want_video else 0)
 
     def _emit(name: str, idx: int, dev: str) -> StageEmit:
@@ -103,10 +110,13 @@ def run_pipeline(
     def _decode(_emit_fn: StageEmit) -> None:
         start_s = preview[0] if preview else None
         end_s = preview[1] if preview else None
-        decode_to_wav(
+        info = decode_to_wav(
             media_path, src_wav, audio_stream_index,
             start_s=start_s, end_s=end_s,
         )
+        # Identity over the decoded duration (preview jobs: the preview
+        # length); timeline ops compose onto this in output-time space.
+        current["timeline"] = Timeline.identity(info.duration_s)
 
     def _save_audio(_emit_fn: StageEmit) -> None:
         dst = encode_audio(
@@ -116,10 +126,31 @@ def run_pipeline(
             OutputFile(dst.name, "audio", dst, dst.stat().st_size)
         )
 
-    def _remux(_emit_fn: StageEmit) -> None:
+    def _rebuild(emit: StageEmit) -> None:
         v = probe.video[0]
-        dst = remux_video(media_path, v.index, current["wav"],
-                          out_dir / f"{stem}_{suffix}", v.codec)
+        tl = current["timeline"] or Timeline.identity(0.0)
+        if tl.is_identity:
+            dst = remux_video(media_path, v.index, current["wav"],
+                              out_dir / f"{stem}_{suffix}", v.codec)
+        else:
+            want_nvenc = device == "gpu" and has_encoder("h264_nvenc")
+            dst, enc = render_video(
+                media_path, v.index, current["wav"], tl,
+                out_dir / f"{stem}_{suffix}", device=device,
+                fps=v.fps or 25.0,
+                report=lambda p, m=None: emit(p, m),
+                should_cancel=should_cancel,
+                script_path=work / "video_filter.txt",
+            )
+            if enc == "libx264" and want_nvenc:
+                emit(
+                    1.0,
+                    "Graphics encoder failed — encoded on the"
+                    " processor instead",
+                    "cpu",
+                )
+            elif enc == "h264_nvenc":
+                emit(1.0, None, "gpu")
         outputs.append(
             OutputFile(dst.name, "video", dst, dst.stat().st_size)
         )
@@ -142,11 +173,15 @@ def run_pipeline(
                 report=lambda p, m: emit(p, m),
                 should_cancel=should_cancel,
                 caps=caps,
+                fps=fps,
+                timeline=current["timeline"],
             )
             result = fn(prev, params or {}, ctx)
             out_wav = Path(result.path)
             if not out_wav.is_file():
                 raise RuntimeError(f"operation {op_id} produced no output")
+            if result.timeline is not None:
+                current["timeline"] = result.timeline
             # Report the device's reality + any op message/fallback reason
             # (SPEC §9: worker persists actual_device via this Progress row).
             emit(
@@ -169,7 +204,7 @@ def run_pipeline(
         stages.append((_op_stage_name(op_id), dev, _op_stage(op_id, params, dev)))
     stages.append(("Saving audio", "cpu", _save_audio))
     if want_video:
-        stages.append(("Rebuilding video", "cpu", _remux))
+        stages.append(("Rebuilding video", "cpu", _rebuild))
 
     assert len(stages) == total
     for idx, (name, dev, fn) in enumerate(stages):
@@ -179,6 +214,16 @@ def run_pipeline(
         emit(0.0)
         fn(emit)
 
+    # The timeline map ships with every job (identity included): the UI
+    # uses it for A/B playhead translation, the cut list and subtitles.
+    # Not registered as a downloadable file — /api/jobs/{id}/timeline
+    # serves it.
+    tl = current["timeline"]
+    if tl is not None:
+        (out_dir / "timeline.json").write_text(
+            json.dumps(tl.to_dict(), ensure_ascii=False),
+            encoding="utf-8",
+        )
     on_progress(
         Progress(
             stage="Done", stage_idx=total, total_stages=total,

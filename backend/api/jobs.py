@@ -42,6 +42,7 @@ _MSG = {
     "no_such_stream": "This file has no audio track with that number.",
     "not_terminal": "This job is still active.",
     "not_retryable": "Only failed, cancelled or interrupted jobs can be retried.",
+    "timeline_not_found": "The timeline isn't available for this job yet.",
 }
 
 
@@ -298,6 +299,28 @@ def delete_job(request: Request, job_id: str):
         settings.data_dir / "jobs" / job_id, ignore_errors=True
     )
     return Response(status_code=204)
+
+
+@router.get("/api/jobs/{job_id}/timeline")
+def job_timeline(request: Request, job_id: str):
+    """The job's source↔output map (A/B playhead, cut list, subtitles).
+
+    404 until the job completes — the file is written at the end of the
+    pipeline run.
+    """
+    store = _store(request)
+    if store.get(job_id) is None:
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    path = (
+        request.app.state.settings.data_dir
+        / "jobs" / job_id / "output" / "timeline.json"
+    )
+    if not path.is_file():
+        return err(404, "timeline_not_found", _MSG["timeline_not_found"])
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return err(404, "timeline_not_found", _MSG["timeline_not_found"])
 
 
 @router.get("/api/jobs/{job_id}/files/{name}")

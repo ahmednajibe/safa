@@ -20,7 +20,10 @@ def _register(op_id: str, module: str) -> None:
     IMPLEMENTATIONS[op_id] = mod.run
 
 
-for _op_id in ("channel", "highpass", "dehum", "declick", "enhance", "loudness"):
+for _op_id in (
+    "channel", "highpass", "dehum", "declick", "enhance", "loudness",
+    "trim", "speed",
+):
     _register(_op_id, f"{__name__}.{_op_id}")
 
 del _op_id, _register

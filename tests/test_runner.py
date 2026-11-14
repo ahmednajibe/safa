@@ -195,8 +195,8 @@ def test_cancel_between_stages(tmp_path):
 
 
 def test_unknown_op_raises(tmp_path):
-    with pytest.raises(NotImplementedError, match="trim"):
-        _run(CLIP, tmp_path, ops=[("trim", {})])
+    with pytest.raises(NotImplementedError, match="silence"):
+        _run(CLIP, tmp_path, ops=[("silence", {})])
 
 
 def test_arabic_output_name(tmp_path):
