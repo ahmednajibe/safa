@@ -10,3 +10,4 @@ frontend/dist/
 tests/fixtures/generated/
 *.err.txt
 .orchestrator/
+tests/fixtures/real/

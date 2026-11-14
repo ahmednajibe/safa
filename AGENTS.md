@@ -10,3 +10,4 @@
 - Write pytest tests for what you build; run `uv run pytest` and make it pass before finishing.
 - Do not commit; the orchestrator reviews and commits.
 - Finish with a short report: files changed, commands run, test results, anything not done or uncertain.
+- Real test recordings (user's own, 19–33 s speech, m4a stereo 48 kHz) are copied in `tests/fixtures/real/` (gitignored, personal — never commit, never upload anywhere). Use them for realistic tests (VAD, denoise, separation, whisper, end-to-end). Tests that use them must `pytest.skip` if the folder is missing. Never read or write the original OneDrive folder.
