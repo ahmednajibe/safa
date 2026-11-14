@@ -9,3 +9,4 @@ node_modules/
 frontend/dist/
 tests/fixtures/generated/
 *.err.txt
+.orchestrator/
