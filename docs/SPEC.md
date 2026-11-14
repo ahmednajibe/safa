@@ -48,7 +48,7 @@ Adapters resample to model rate (Demucs 44.1k, DFN 48k) and back; preserve stere
 - **ffmpeg/ffprobe**: `scripts/setup.ps1` downloads a pinned Windows static build into `tools/ffmpeg/`; app resolves `tools/ffmpeg/bin` first, then PATH. Health check reports both.
 - **Storage**: `data/jobs/<uuid>/{input,work,output}`; retention 7 days (configurable), "Delete now" button, disk-space check before start.
 - **Frontend**: React + Vite + TypeScript + Tailwind + wavesurfer.js. Built into `frontend/dist` and served by FastAPI. Dev mode uses Vite proxy.
-- **Launcher**: `start.bat` (setup if needed → start server → open browser at http://127.0.0.1:8765).
+- **Launcher**: `start.bat` (setup if needed → start server → open browser at http://127.0.0.1:8790; port overridable via `SOUND_SYSTEM_PORT`).
 - Always pass subprocess args as lists (Arabic / space-containing Windows paths). Avoid `pydub` (audioop removed in 3.13; keep code 3.13-clean anyway). Close file handles before ffmpeg touches the same path.
 
 ## 5. API (initial)
@@ -86,11 +86,12 @@ Arabic filename + spaces; 60 s noisy speech+music fixture; 10 s mp4; long (≥30
 - **Model manifest early (M1):** `backend/core/models_manifest.py` lists each model (name, source, filename, cache dir under `models/`, size, sha256 when known); all libraries pointed at `models/` (e.g. `HF_HOME`, DFN model dir, audio-separator `model_file_dir`, faster-whisper `download_root`). Offline mode: if model missing and no network → op reported unavailable, not crash.
 - **Real recordings:** `tests/fixtures/real/*.m4a` (user's own speech, 19–33 s, gitignored). Used as acceptance input from M3a onward and for the final end-to-end walkthrough; tests skip when absent.
 
-## 9. Processing device choice (user request, 2026-11-15)
-- Job-level `device`: `"auto" | "gpu" | "cpu"` (default `"auto"`). Stored on the job, shown in the UI.
-  - `auto`: GPU-capable ops use the GPU when `/api/health.device == "gpu"`; on OOM retry that stage on CPU (warning shown).
-  - `gpu`: same as auto but chosen explicitly; if no GPU is available the option is disabled in the UI and the API rejects it (422 `gpu_unavailable`). OOM still retries on CPU with a warning rather than failing the job.
-  - `cpu`: every op runs on CPU; GPU memory stays free for other programs.
-- Per-op override: every op with `device` `"gpu"` or `"gpu-optional"` gets an advanced param `run_on`: `"job" | "gpu" | "cpu"` (default `"job"` = follow the job setting).
-- Effective device per stage is resolved in one function `resolve_device(job_device, op_spec, op_params, gpu_available) -> "gpu" | "cpu"` and reported in progress (`device`) and the stepper.
-- CPU-only ops (ffmpeg / pedalboard / silero) ignore the setting.
+## 9. Processing device choice (user request 2026-11-15; reviewed by Astra + Argon, `docs/brainstorm/*_device.md`)
+- Job-level `device`: `"gpu" | "cpu"`. Default = `"gpu"` when GPU is usable, else `"cpu"`. (No separate "auto": Astra and Argon both showed it behaved identically to gpu.) **No per-step override in v1** (only separate, AI denoise and subtitles use the GPU, and they run one at a time).
+- **GPU usable** = `/api/health.device == "gpu"`, which requires nvidia-smi GPU **and** `cuda_dlls` loaded **and** torch module present. A job requesting `gpu` when not usable → 422 `gpu_unavailable`.
+- `resolve_device(job_device, op_id, params, caps) -> "gpu" | "cpu"` per stage, using engine capability: separate (torch CUDA for Demucs, ORT `CUDAExecutionProvider` for MDX), denoise only when `engine == "ai"` (classic/afftdn → cpu), subtitles (CTranslate2 CUDA with `int8_float32` supported), everything else cpu.
+- **`cpu` is a hard ceiling:** worker process started with `CUDA_VISIBLE_DEVICES=""`; ORT forced to `CPUExecutionProvider`; CT2 `device="cpu"`; video re-encode uses `libx264` (never `h264_nvenc`).
+- **GPU out of memory:** first retry on GPU with smaller chunks (Demucs segment 7→4, MDX segment_size 256→128), then free engine resources and retry that stage **once on CPU**. Never prompt mid-job. Persistent visible message: "Graphics memory ran out. Running this step on the processor instead." Detect OOM per engine (`torch.cuda.OutOfMemoryError`; ORT errors containing "out of memory"/"CUDNN_STATUS_ALLOC_FAILED"/"Failed to allocate"; CT2 `RuntimeError` containing "out of memory").
+- Job records `requested_device`, and per stage `actual_device` + `fallback_reason`; progress events include the actual device.
+- Settings are **snapshotted at submission**; changing the choice affects only new jobs; Retry reuses the snapshot. The UI remembers the last choice in `localStorage`.
+- **Estimates:** `backend/pipeline/estimates.py` holds per-engine real-time factors per device from `docs/FEASIBILITY.md` (rough), `estimate_seconds(duration_s, ops, device) -> (low, high)`; UI shows coarse buckets only ("Under a minute", "About 2 min", "About 10 min", "Over 30 min"), labelled as estimates; after fallback the estimate is dropped ("Estimating…"). Later milestones may refine factors from completed jobs.
