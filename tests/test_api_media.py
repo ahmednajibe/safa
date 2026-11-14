@@ -1,7 +1,14 @@
-"""M3a Task 4 tests: media upload/probe/peaks/playback/file/delete API."""
+"""M3a Task 4 + M3b Task 0 tests: media upload/probe/peaks/playback API.
+
+Uploads are raw ``application/octet-stream`` bodies with the original
+filename percent-encoded in the ``X-Filename`` header (M3b Task 0).
+"""
+import asyncio
 import shutil
+import tempfile
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
@@ -23,11 +30,15 @@ def _client(tmp_path) -> TestClient:
     )
 
 
-def _upload(client, path: Path, name: str | None = None, mime="video/mp4"):
-    with path.open("rb") as f:
-        return client.post(
-            "/api/media", files={"file": (name or path.name, f, mime)}
-        )
+def _upload(client, path: Path, name: str | None = None):
+    return client.post(
+        "/api/media",
+        content=path.read_bytes(),
+        headers={
+            "X-Filename": quote(name or path.name),
+            "Content-Type": "application/octet-stream",
+        },
+    )
 
 
 def _media_root(tmp_path: Path) -> Path:
@@ -57,7 +68,7 @@ def test_upload_arabic_name_preserved(tmp_path, real_dir):
     arabic_copy = tmp_path / "تسجيل عربي 1.m4a"
     shutil.copyfile(src, arabic_copy)
     c = _client(tmp_path)
-    r = _upload(c, arabic_copy, mime="audio/x-m4a")
+    r = _upload(c, arabic_copy)
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["filename"] == "تسجيل عربي 1.m4a"
@@ -69,7 +80,7 @@ def test_upload_arabic_name_preserved(tmp_path, real_dir):
 
 def test_upload_arabic_wav_fixture(tmp_path):
     c = _client(tmp_path)
-    r = _upload(c, ARABIC_WAV, mime="audio/wav")
+    r = _upload(c, ARABIC_WAV)
     assert r.status_code == 201, r.text
     assert r.json()["filename"] == "تسجيل اختبار 1.wav"
 
@@ -78,7 +89,7 @@ def test_upload_txt_415(tmp_path):
     c = _client(tmp_path)
     bad = tmp_path / "notes.txt"
     bad.write_text("hello")
-    r = _upload(c, bad, mime="text/plain")
+    r = _upload(c, bad)
     assert r.status_code == 415
     assert r.json()["code"] == "unsupported_type"
     assert not list(_media_root(tmp_path).iterdir()) if _media_root(tmp_path).exists() else True
@@ -106,7 +117,7 @@ def test_upload_garbage_422(tmp_path):
     c = _client(tmp_path)
     bad = tmp_path / "fake.wav"
     bad.write_bytes(b"not audio at all" * 100)
-    r = _upload(c, bad, mime="audio/wav")
+    r = _upload(c, bad)
     assert r.status_code == 422
     assert r.json()["code"] == "unreadable"
 
@@ -122,6 +133,98 @@ def test_upload_disk_full_507(tmp_path, monkeypatch):
     assert "GB" in body["message"]
     root = _media_root(tmp_path)
     assert not root.exists() or not any(root.iterdir())
+
+
+def test_upload_does_not_use_system_temp(tmp_path, monkeypatch):
+    """Task 0.1: octet-stream upload never spools the body through %TEMP%
+    (multipart parsing is what created the temp copy on C:)."""
+
+    def _no_spool(*a, **k):
+        raise AssertionError("multipart spooling touched tempfile")
+
+    monkeypatch.setattr(tempfile, "SpooledTemporaryFile", _no_spool)
+    c = _client(tmp_path)
+    r = _upload(c, CLIP)
+    assert r.status_code == 201, r.text
+    mdir = _media_root(tmp_path) / r.json()["media_id"]
+    assert (mdir / "original.mp4").stat().st_size == CLIP.stat().st_size
+
+
+def test_upload_filename_header_arabic(tmp_path, real_dir):
+    """Task 0.1: X-Filename is percent-encoded UTF-8; decoded name kept."""
+    raw_name = "تسجيل بلس 100%.m4a"  # Arabic + spaces + a literal '%'
+    c = _client(tmp_path)
+    r = c.post(
+        "/api/media",
+        content=(real_dir / "Recording (2).m4a").read_bytes(),
+        headers={
+            "X-Filename": quote(raw_name),
+            "Content-Type": "application/octet-stream",
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["filename"] == raw_name
+    mdir = _media_root(tmp_path) / body["media_id"]
+    assert (mdir / "original.m4a").is_file()
+
+
+def test_upload_blocking_calls_run_off_loop(tmp_path, monkeypatch):
+    """Task 0.2: probe() and disk checks run in the threadpool, not on the
+    event loop (``asyncio.get_running_loop`` fails off the loop)."""
+    seen: dict[str, str] = {}
+
+    def _spy(name, fn):
+        def inner(*a, **k):
+            try:
+                asyncio.get_running_loop()
+                seen[name] = "event-loop"
+            except RuntimeError:
+                seen[name] = "off-loop"
+            return fn(*a, **k)
+
+        return inner
+
+    monkeypatch.setattr(
+        media_api, "free_space_bytes",
+        _spy("disk", media_api.free_space_bytes),
+    )
+    monkeypatch.setattr(
+        media_api, "probe", _spy("probe", media_api.probe)
+    )
+    c = _client(tmp_path)
+    r = _upload(c, CLIP)
+    assert r.status_code == 201, r.text
+    assert seen.get("disk") == "off-loop"
+    assert seen.get("probe") == "off-loop"
+
+
+def test_prep_failure_surfaces(tmp_path, monkeypatch):
+    """Task 0.3: a failing prep is visible — ready.error + 500 prep_failed
+    + prep.log — instead of /peaks answering 202 forever."""
+
+    def _boom(*a, **k):
+        raise RuntimeError("decode exploded")
+
+    monkeypatch.setattr(media_api, "decode_to_wav", _boom)
+    c = _client(tmp_path)
+    r = _upload(c, CLIP)
+    assert r.status_code == 201, r.text
+    mid = r.json()["media_id"]
+    deadline = time.time() + 15
+    err_val = None
+    while time.time() < deadline:
+        info = c.get(f"/api/media/{mid}").json()
+        err_val = info["ready"].get("error")
+        if err_val:
+            break
+        time.sleep(0.2)
+    assert err_val, "prep error never surfaced in ready.error"
+    p = c.get(f"/api/media/{mid}/peaks")
+    assert p.status_code == 500
+    assert p.json()["code"] == "prep_failed"
+    assert "couldn't read the audio" in p.json()["message"]
+    assert (_media_root(tmp_path) / mid / "prep.log").is_file()
 
 
 # ---- media info / peaks / playback / file -----------------------------------

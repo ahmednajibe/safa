@@ -32,6 +32,7 @@ dependencies = [
     "torch==2.5.1+cu124",
     "torchaudio==2.5.1+cu124",
     "torchvision==0.20.1+cu124",
+    "psutil>=7.2.2",
 ]
 
 [dependency-groups]

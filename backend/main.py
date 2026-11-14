@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -9,12 +10,15 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.estimate import router as estimate_router
 from backend.api.health import router as health_router
+from backend.api.jobs import router as jobs_router
 from backend.api.media import router as media_router
 from backend.api.operations import router as operations_router
 from backend.core.models_manifest import configure_model_env
 from backend.core.paths import ROOT
 from backend.core.settings import Settings, get_settings
 from backend.db import init_db
+from backend.jobs.store import JobStore
+from backend.jobs.supervisor import Supervisor
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 
@@ -75,17 +79,33 @@ def _mount_spa(app: FastAPI) -> None:
         return HTMLResponse(_FALLBACK_HTML)
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """On boot: corpse running jobs → interrupted, then start the supervisor.
+    On shutdown: stop the supervisor (kills the running worker tree, marks
+    the job interrupted)."""
+    app.state.store.mark_interrupted_on_startup()
+    app.state.supervisor.start()
+    try:
+        yield
+    finally:
+        app.state.supervisor.stop()
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     s = settings or get_settings()
     configure_model_env()
     _prepend_ffmpeg_dir()
     init_db(s.db_path)
-    app = FastAPI(title="Sound System")
+    app = FastAPI(title="Sound System", lifespan=_lifespan)
     app.state.settings = s
+    app.state.store = JobStore(s.db_path)
+    app.state.supervisor = Supervisor(app.state.store, s)
     app.include_router(health_router)
     app.include_router(operations_router)
     app.include_router(media_router)
     app.include_router(estimate_router)
+    app.include_router(jobs_router)
     _mount_spa(app)
     return app
 

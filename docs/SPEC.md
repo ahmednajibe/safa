@@ -54,8 +54,8 @@ Adapters resample to model rate (Demucs 44.1k, DFN 48k) and back; preserve stere
 ## 5. API (initial)
 - `GET /api/health` — python, torch, cuda, gpu name/VRAM, ffmpeg/ffprobe paths+versions, feature availability per op.
 - `GET /api/operations` — op list with params schema, order, availability, conflict rules, presets.
-- `POST /api/media` (multipart upload) → `{media_id, probe}`; `GET /api/media/{id}/peaks` waveform peaks.
-- `POST /api/jobs` `{media_id, ops:[{id, params}], output:{audio_format, video:bool}, preview:{start,end}|null}` → job.
+- `POST /api/media` — raw `application/octet-stream` body, original filename percent-encoded in the `X-Filename` header → `{media_id, probe}`; `GET /api/media/{id}/peaks` waveform peaks.
+- `POST /api/jobs` `{media_id, ops:{id:params}|[{id,params}], output:{audio_format, keep_video}, device:"gpu"|"cpu"|null, preview:{start_s,end_s}|null, audio_stream:int|null}` → job.
 - `GET /api/jobs`, `GET /api/jobs/{id}`, `GET /api/jobs/{id}/events` (SSE), `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/retry`, `DELETE /api/jobs/{id}`.
 - `GET /api/jobs/{id}/files/{name}` — download outputs (audio, video, srt, stems).
 

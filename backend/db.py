@@ -33,7 +33,12 @@ CREATE TABLE IF NOT EXISTS jobs (
     worker_pid INTEGER,
     created_at TEXT,
     started_at TEXT,
-    finished_at TEXT
+    finished_at TEXT,
+    requested_device TEXT,
+    audio_stream INT,
+    cancel_requested INT DEFAULT 0,
+    stages_json TEXT,
+    retry_of TEXT
 );
 CREATE TABLE IF NOT EXISTS job_files (
     job_id TEXT REFERENCES jobs(id),
@@ -54,11 +59,29 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return con
 
 
+# Columns added in M3b; applied to M2-era DBs via ALTER TABLE (idempotent).
+_JOBS_NEW_COLUMNS = (
+    ("requested_device", "TEXT"),
+    ("audio_stream", "INT"),
+    ("cancel_requested", "INT DEFAULT 0"),
+    ("stages_json", "TEXT"),
+    ("retry_of", "TEXT"),
+)
+
+
+def _migrate(con: sqlite3.Connection) -> None:
+    existing = {r[1] for r in con.execute("PRAGMA table_info(jobs)")}
+    for name, ddl in _JOBS_NEW_COLUMNS:
+        if name not in existing:
+            con.execute(f"ALTER TABLE jobs ADD COLUMN {name} {ddl}")
+
+
 def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = connect(db_path)
     try:
         con.executescript(SCHEMA)
+        _migrate(con)
         con.commit()
     finally:
         con.close()

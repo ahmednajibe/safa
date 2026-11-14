@@ -1,8 +1,13 @@
 """/api/media — upload, probe, peaks, playback, original file, delete.
 
-Upload flow (M3a plan): ext check → disk check → stream to ``original.<ext>``
-in 1 MiB chunks → probe → audio check → DB row → background prep thread
-(``source.wav``, ``peaks.json``, ``playback.m4a``, LUFS).
+Upload flow (M3b Task 0): ``POST /api/media`` takes a raw
+``application/octet-stream`` body (never spooled to the system temp dir by
+multipart parsing) with the original filename percent-encoded in
+``X-Filename`` → ext check → disk check (Content-Length) → stream to
+``original.<ext>`` → probe → audio check → DB row → background prep thread
+(``source.wav``, ``peaks.json``, ``playback.m4a``, LUFS). Blocking work runs
+in the threadpool; a failed prep surfaces as ``ready.error`` /
+``prep_failed`` instead of an endless 202.
 """
 from __future__ import annotations
 
@@ -11,11 +16,15 @@ import mimetypes
 import re
 import shutil
 import threading
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import unquote
 
-from fastapi import APIRouter, Request, UploadFile
+from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 
 from backend.api.errors import err
 from backend.db import connect
@@ -34,7 +43,6 @@ from backend.media.storage import (
 
 router = APIRouter()
 
-_CHUNK = 1 << 20  # 1 MiB upload streaming chunks
 _HEADROOM = 512 << 20  # keep at least 512 MiB free after upload + outputs
 _STREAM_CHUNK = 256 << 10
 
@@ -54,6 +62,7 @@ _MSG = {
     "media_not_found": "This file was deleted or never existed.",
     "in_use": "A running job is using this file.",
     "no_such_stream": "This file has no audio track with that number.",
+    "prep_failed": "We couldn't read the audio in this file.",
 }
 
 
@@ -75,6 +84,7 @@ def _media_payload(row, mdir: Path) -> dict:
         "ready": {
             "peaks": (mdir / "peaks.json").is_file(),
             "playback": (mdir / "playback.m4a").is_file(),
+            "error": p.get("prep_error"),
         },
     }
 
@@ -89,8 +99,32 @@ def _row(db_path: Path, media_id: str):
         con.close()
 
 
+def _patch_probe(db_path: Path, media_id: str, **fields) -> None:
+    """Merge ``fields`` into the media row's ``probe_json``."""
+    con = connect(db_path)
+    try:
+        row = con.execute(
+            "SELECT probe_json FROM media WHERE id = ?", (media_id,)
+        ).fetchone()
+        if row:
+            p = _jsonable_probe(row)
+            p.update(fields)
+            con.execute(
+                "UPDATE media SET probe_json = ? WHERE id = ?",
+                (json.dumps(p), media_id),
+            )
+            con.commit()
+    finally:
+        con.close()
+
+
 def _prepare(db_path: Path, mdir: Path, media_id: str, stream_index: int) -> None:
-    """Background prep: working wav, peaks, browser copy, loudness."""
+    """Background prep: working wav, peaks, browser copy, loudness.
+
+    On failure the traceback goes to ``prep.log`` and a short message lands
+    in ``probe_json["prep_error"]`` so the UI can show it instead of waiting
+    on peaks that will never exist.
+    """
     try:
         originals = list(mdir.glob("original.*"))
         if not originals:
@@ -99,28 +133,19 @@ def _prepare(db_path: Path, mdir: Path, media_id: str, stream_index: int) -> Non
         decode_to_wav(originals[0], source, stream_index)
         make_playback_copy(source, mdir / "playback.m4a")
         lufs = integrated_lufs(source)
-        con = connect(db_path)
-        try:
-            row = con.execute(
-                "SELECT probe_json FROM media WHERE id = ?", (media_id,)
-            ).fetchone()
-            if row:
-                p = _jsonable_probe(row)
-                p["lufs"] = lufs
-                con.execute(
-                    "UPDATE media SET probe_json = ? WHERE id = ?",
-                    (json.dumps(p), media_id),
-                )
-                con.commit()
-        finally:
-            con.close()
+        _patch_probe(db_path, media_id, lufs=lufs)
         # peaks.json is written last: it is the "prep done" marker.
         (mdir / "peaks.json").write_text(
             json.dumps(compute_peaks(source)), encoding="utf-8"
         )
-    except Exception:
-        # Prep is best-effort; the upload itself already succeeded.
-        pass
+    except Exception as exc:
+        try:
+            (mdir / "prep.log").write_text(
+                traceback.format_exc(), encoding="utf-8"
+            )
+        except OSError:
+            pass
+        _patch_probe(db_path, media_id, prep_error=str(exc)[:300])
 
 
 def _insufficient(needed: int, free: int) -> JSONResponse:
@@ -139,10 +164,37 @@ def _content_length(request: Request) -> int | None:
         return None
 
 
+def _insert_media_row(
+    db_path: Path,
+    media_id: str,
+    filename: str,
+    original: Path,
+    size_bytes: int,
+    p,
+) -> None:
+    con = connect(db_path)
+    try:
+        con.execute(
+            "INSERT INTO media (id, filename, stored_path, size_bytes,"
+            " probe_json, created_at) VALUES (?,?,?,?,?,?)",
+            (
+                media_id,
+                filename,
+                str(original),
+                size_bytes,
+                json.dumps(p.to_dict()),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
 @router.post("/api/media", status_code=201)
-async def upload_media(request: Request, file: UploadFile):
+async def upload_media(request: Request):
     settings = request.app.state.settings
-    filename = file.filename or "upload"
+    filename = unquote(request.headers.get("x-filename", "upload"))
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTS:
         return err(415, "unsupported_type", _MSG["unsupported_type"])
@@ -150,7 +202,7 @@ async def upload_media(request: Request, file: UploadFile):
     content_length = _content_length(request)
     if content_length is not None:
         needed = content_length * 4 + _HEADROOM
-        free = free_space_bytes(settings.data_dir)
+        free = await run_in_threadpool(free_space_bytes, settings.data_dir)
         if free < needed:
             return _insufficient(needed, free)
 
@@ -162,7 +214,7 @@ async def upload_media(request: Request, file: UploadFile):
     try:
         written = 0
         with original.open("wb") as fh:
-            while chunk := await file.read(_CHUNK):
+            async for chunk in request.stream():
                 written += len(chunk)
                 if written > limit:
                     fh.close()
@@ -171,12 +223,14 @@ async def upload_media(request: Request, file: UploadFile):
 
         if content_length is None:  # no early check possible → verify now
             needed = written * 4 + _HEADROOM
-            free = free_space_bytes(settings.data_dir)
+            free = await run_in_threadpool(
+                free_space_bytes, settings.data_dir
+            )
             if free < needed:
                 shutil.rmtree(mdir, ignore_errors=True)
                 return _insufficient(needed, free)
         try:
-            p = probe(original)
+            p = await run_in_threadpool(probe, original)
         except ProbeError:
             shutil.rmtree(mdir, ignore_errors=True)
             return err(422, "unreadable", _MSG["unreadable"])
@@ -184,26 +238,21 @@ async def upload_media(request: Request, file: UploadFile):
             shutil.rmtree(mdir, ignore_errors=True)
             return err(422, "no_audio", _MSG["no_audio"])
 
-        con = connect(settings.db_path)
-        try:
-            con.execute(
-                "INSERT INTO media (id, filename, stored_path, size_bytes,"
-                " probe_json, created_at) VALUES (?,?,?,?,?,?)",
-                (
-                    media_id,
-                    display_name(filename),
-                    str(original),
-                    written,
-                    json.dumps(p.to_dict()),
-                    datetime.now(timezone.utc).isoformat(),
-                ),
-            )
-            con.commit()
-        finally:
-            con.close()
+        await run_in_threadpool(
+            _insert_media_row,
+            settings.db_path,
+            media_id,
+            display_name(filename),
+            original,
+            written,
+            p,
+        )
     except _TooLarge:
         shutil.rmtree(mdir, ignore_errors=True)
         return err(413, "too_large", _MSG["too_large"])
+    except ClientDisconnect:
+        shutil.rmtree(mdir, ignore_errors=True)
+        return err(400, "client_disconnected", "The upload was interrupted.")
     except Exception:
         shutil.rmtree(mdir, ignore_errors=True)
         raise
@@ -252,6 +301,8 @@ def get_peaks(request: Request, media_id: str, stream: int | None = None):
     if stream is None or stream == default_index:
         peaks_path = mdir / "peaks.json"
         if not peaks_path.is_file():
+            if p.get("prep_error"):
+                return err(500, "prep_failed", _MSG["prep_failed"])
             return err(202, "processing", "Still preparing this file.")
         return JSONResponse(json.loads(peaks_path.read_text(encoding="utf-8")))
 
@@ -279,6 +330,8 @@ def get_playback(request: Request, media_id: str):
         return err(404, "media_not_found", _MSG["media_not_found"])
     playback = media_dir(media_id, settings.data_dir) / "playback.m4a"
     if not playback.is_file():
+        if _jsonable_probe(row).get("prep_error"):
+            return err(500, "prep_failed", _MSG["prep_failed"])
         return err(202, "processing", "Still preparing this file.")
     return _file_response(playback, request, "audio/mp4")
 
