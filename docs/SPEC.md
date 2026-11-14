@@ -4,7 +4,7 @@ Merged from three proposals (`docs/brainstorm/astra.md`, `argon.md`, `opus_propo
 Local-only web app: upload audio/video → pick operations → pipeline runs → download results.
 
 ## 1. Target machine
-Windows 11, i5-10300H (8 threads), 16 GB RAM, GTX 1650 4 GB (no Tensor Cores → fp32/int8 only), Python 3.13 global (untouched), Node 25, uv. Must work offline after first-time model download. Bind to `127.0.0.1` only.
+Windows 11, i5-10300H (8 threads), 16 GB RAM, GTX 1650 4 GB (Turing CC 7.5, no Tensor Cores; default fp32, whisper int8 — query CTranslate2 supported compute types), Python 3.13 global (untouched), Node 25, uv. Must work offline after first-time model download. Bind to `127.0.0.1` only.
 
 ## 2. Operations (user picks any combination)
 Every operation has an `id`, fixed `order` number, params schema, and declared device needs. CPU fallback is mandatory for every GPU op.
@@ -19,7 +19,7 @@ Every operation has an `id`, fixed `order` number, params schema, and declared d
 | 35 | `dereverb` | Room echo removal | `audio-separator` MDX reverb model (optional, behind feasibility check) | — |
 | 40 | `denoise` | **Noise reduction** | **DeepFilterNet3** (primary), ffmpeg `afftdn` (fallback / "classic" mode) | atten_lim_db=24 |
 | 45 | `declick` | Click/pop removal | ffmpeg `adeclick` | conservative |
-| 50 | `enhance` | **Voice enhance / quality** (studio DSP: HPF→de-esser→presence EQ→compressor) | `pedalboard` | preset=voice |
+| 50 | `enhance` | **Voice enhance / quality** (studio DSP: HPF→de-esser→presence EQ→compressor) | `pedalboard` (HPF/EQ/compressor) + ffmpeg `deesser` (pedalboard has no de-esser) | preset=voice |
 | 55 | `enhance_ai` | AI restoration (optional, later milestone) | `resemble-enhance` in isolated env, `--no-deps` | off |
 | 60 | `silence` | **Cut silence** / shorten pauses | `silero-vad` (speech mode) or ffmpeg `silencedetect` (amplitude mode); 15 ms crossfades; same keep-intervals drive video cuts | max_pause=0.6s → keep 0.25s, pad 0.2s |
 | 70 | `speed` | Speed / tempo change (pitch-preserving) | ffmpeg `atempo` | 1.0 |
@@ -71,3 +71,16 @@ Single-page dark studio:
 
 ## 7. Acceptance
 Arabic filename + spaces; 60 s noisy speech+music fixture; 10 s mp4; long (≥30 min) audio within RAM limits; offline run after models cached; peak VRAM < 3 GB.
+
+## 8. Round-2 decisions (from Astra + Argon critiques, `docs/brainstorm/*_review.md`)
+- **Candidate pins (M1 must validate on this machine, then freeze in `uv.lock` + `docs/FEASIBILITY.md`):** `torch==2.5.1`, `torchaudio==2.5.1`, `torchvision==0.20.1` from `https://download.pytorch.org/whl/cu124` (torchaudio 2.5.1 still has `torchaudio.backend.common.AudioMetaData` that `deepfilternet==0.5.6` imports — if it fails, add a `sys.modules` shim); `numpy==1.26.4`; `soundfile==0.12.1`; `deepfilternet==0.5.6` + `deepfilterlib==0.5.6`; `audio-separator` pinned to a version whose metadata allows numpy<2 (≈0.30.x) with `diffq-fixed==0.2.4`; `silero-vad==5.1.2`; `pedalboard==0.9.16`; `faster-whisper==1.1.1`, `ctranslate2==4.5.0`.
+- **ONNX Runtime:** exactly one distribution installed. Use `onnxruntime-gpu` (CUDA 12 / cuDNN 9) and a uv `override-dependencies` so nothing also pulls `onnxruntime`. If that breaks silero/faster-whisper, fall back to CPU `onnxruntime` and run separation on torch Demucs.
+- **CUDA DLLs:** `nvidia-cublas-cu12` + `nvidia-cudnn-cu12` (cuDNN 9) wheels; `backend/core/gpu.py::setup_cuda_dlls()` calls `os.add_dll_directory()` for every `site-packages/nvidia/*/bin` and is called at worker start before importing onnxruntime/ctranslate2.
+- **Audio I/O:** use `soundfile` (not torchaudio loaders — static ffmpeg has no shared libs for torchaudio). Process in blocks (`soundfile.blocks` / chunk iterators) for DSP + DeepFilterNet so 60 min audio doesn't load whole into RAM.
+- **silero-vad:** PyPI package with bundled weights (no `torch.hub`); run on a 16 kHz mono copy; apply timestamps to the 48 kHz stereo signal.
+- **pydub:** allowed only as an indirect dependency of audio-separator; our code never imports it.
+- **VRAM:** per-engine cleanup (torch: `empty_cache`; ONNX: drop session; CTranslate2: delete model). Measure total GPU memory via `nvidia-smi` / NVML, not only torch allocator. Engine-specific OOM detection → CPU retry. Demucs segment explicitly limited (start 7 s, drop to 4 s on OOM); MDX `segment_size=256, batch_size=1`.
+- **Timeline model:** `backend/media/timeline.py` holds a list of segments `{src_start, src_end, out_start, out_end, speed}`; composition of trim → silence → speed yields one map used for: audio rendering, video rendering, subtitle timing, and A/B playhead translation (output time ↔ source time). Boundaries use short non-overlapping fades (fade-out/fade-in ≤10 ms inside each kept segment), **never overlapping crossfades**, so audio and video durations stay identical.
+- **Long cut lists:** ffmpeg filtergraphs written to a file and passed with `-filter_complex_script` (Windows 32 KB command-line limit).
+- **Fixtures:** besides synthetic tones, generate real speech via Windows SAPI (`System.Speech`) TTS with known text (for VAD + whisper tests), plus mixes: speech+noise, speech+music, speech with known silences, silence-only file, 10 s mp4, Arabic+spaces filename. Optional: a CC-BY LibriSpeech/LibriVox sample downloaded by script.
+- **Model manifest early (M1):** `backend/core/models_manifest.py` lists each model (name, source, filename, cache dir under `models/`, size, sha256 when known); all libraries pointed at `models/` (e.g. `HF_HOME`, DFN model dir, audio-separator `model_file_dir`, faster-whisper `download_root`). Offline mode: if model missing and no network → op reported unavailable, not crash.
