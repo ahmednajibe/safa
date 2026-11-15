@@ -107,6 +107,27 @@ def _breaths_near_splices(
     return [(s, e) for s, e in merged]
 
 
+def _speech_after_cut(
+    speech: list[tuple[float, float]],
+    render_intervals: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """VAD speech intervals (input time) re-expressed in output time.
+
+    The render writes the kept input-time spans concatenated, so a
+    speech piece inside render span ``i`` shifts by ``cum_out_i − a_i``.
+    """
+    out: list[tuple[float, float]] = []
+    pos = 0.0
+    for a, b in render_intervals:
+        for s, e in speech:
+            lo, hi = max(s, a), min(e, b)
+            if hi - lo > 1e-9:
+                out.append((pos + lo - a, pos + hi - a))
+        pos += b - a
+    out.sort()
+    return out
+
+
 def _result(out: Path, code: str, params: dict, timeline=None) -> OpResult:
     text, c, p = msg(code, **params)
     return OpResult(
@@ -148,17 +169,43 @@ def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
         ctx.report(1.0, None)
         return _result(out, "no_speech_found", {})
 
-    breaths = None
-    if action == "remove" and mode == "vad" and pad_s > 0:
-        # Breath-aware pads: a breath inside a pad zone would survive the
-        # cut as a half-gasp at the splice — clamp the pad at its edge.
-        # Only pad zones can leak gasps, so detection scans bounded
-        # windows around cuttable gaps + file edges (~±1 s each), never
-        # the whole file — RAM stays flat on long inputs.
-        breaths = _breaths_near_splices(
-            in_wav, speech, dur, min_silence_s,
+    # M4d Task 1: this stage ran VAD — record the pre-cut stats when no
+    # earlier VAD stage did (enhance consumes them after the cut).
+    if mode == "vad":
+        from backend.media.vad_stats import ensure_vad_stats
+
+        ensure_vad_stats(
+            in_wav, ctx.analysis, speech=speech,
             should_cancel=ctx.should_cancel,
         )
+
+    breaths = None
+    if action == "remove" and mode == "vad" and pad_s > 0:
+        # M4d Task 1: prefer the spans the breaths op published — it ran
+        # BEFORE its own ducking and recorded them in this stage's input
+        # time. Re-detecting now would miss the very breaths it ducked.
+        # ``breath_spans_dur`` matching this input's duration proves no
+        # length-changing stage sat in between (coordinates still valid).
+        carried = ctx.analysis.get("breath_spans")
+        carried_dur = ctx.analysis.get("breath_spans_dur")
+        if (
+            carried is not None
+            and carried_dur is not None
+            and abs(float(carried_dur) - dur) < 0.01
+        ):
+            breaths = [
+                (float(s), float(e)) for s, e in carried if e > s
+            ]
+        else:
+            # Breath-aware pads: a breath inside a pad zone would survive
+            # the cut as a half-gasp at the splice — clamp the pad at its
+            # edge. Only pad zones can leak gasps, so detection scans
+            # bounded windows around cuttable gaps + file edges (~±1 s
+            # each), never the whole file — RAM stays flat on long inputs.
+            breaths = _breaths_near_splices(
+                in_wav, speech, dur, min_silence_s,
+                should_cancel=ctx.should_cancel,
+            )
 
     keep = plan_keep(
         speech, dur, action, min_silence_s, pad_s, keep_pause_s,
@@ -194,6 +241,16 @@ def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
         should_cancel=ctx.should_cancel,
     )
     ctx.report(1.0, None)
+
+    # M4d fix round: re-express the VAD speech mask in OUTPUT time so
+    # enhance's expander can bypass it — quiet syllable tails inside
+    # speech intervals must never be expanded (they were ~1.3 % of the
+    # kept signal on Recording (3)).
+    if mode == "vad":
+        ctx.analysis["speech_intervals"] = _speech_after_cut(
+            speech, render_intervals
+        )
+        ctx.analysis["speech_intervals_dur"] = float(new_tl.out_duration)
 
     # Summary over what this op actually dropped, in input time and after
     # snapping: "places" = removed spans between/around the kept parts.

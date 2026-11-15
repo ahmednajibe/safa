@@ -49,6 +49,12 @@ class OpContext:
     # Length-changing ops whose params are source-time (trim) must shift
     # by -preview[0] and clip to the decoded duration (M8 Task 0).
     preview: tuple[float, float] | None = None
+    # M4d: measurements carried between stages. The runner shares one dict
+    # across all per-stage contexts so the first VAD stage can record the
+    # pre-cut noise floor / speech level (``noise_floor_dbfs``,
+    # ``speech_dbfs``) and breaths can hand its detected spans to the
+    # silence stage (``breath_spans`` + ``breath_spans_dur``).
+    analysis: dict = field(default_factory=dict)
 
 
 @dataclass

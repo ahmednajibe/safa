@@ -35,21 +35,28 @@ def _all_implemented():
 # ---- registry shape ---------------------------------------------------------
 
 
-def test_fifteen_ops_in_order():
+def test_sixteen_ops_in_order():
+    """M4d: 15 public ops + the hidden ``declick_final`` (order 52,
+    auto-inserted — never listed by /api/operations or shown as a card).
+    ``silence`` moved 60→48 so enhance calibrates on post-cut audio is
+    avoided (its stats come from carried pre-cut analysis instead)."""
     from backend.operations.registry import OPERATIONS, ops_in_order
 
-    assert len(OPERATIONS) == 15
+    assert len(OPERATIONS) == 16
     ids = [op.id for op in ops_in_order()]
     assert ids == [
         "trim", "channel", "highpass", "dehum", "separate", "declick",
-        "denoise", "dereverb", "breaths", "enhance", "enhance_ai",
-        "silence", "speed", "loudness", "subtitles",
+        "denoise", "dereverb", "breaths", "silence", "enhance",
+        "declick_final", "enhance_ai", "speed", "loudness", "subtitles",
     ]
     orders = [op.order for op in ops_in_order()]
     assert orders == sorted(orders)
     assert OPERATIONS["declick"].order == 38  # between dehum and denoise (M4c)
-    assert OPERATIONS["dereverb"].order == 42  # after denoise, before enhance (M6)
-    assert OPERATIONS["breaths"].order == 46  # after dereverb, before enhance (M6b)
+    assert OPERATIONS["dereverb"].order == 42  # after denoise, before breaths (M6)
+    assert OPERATIONS["breaths"].order == 46  # after dereverb, before silence (M6b)
+    assert OPERATIONS["silence"].order == 48  # before enhance (M4d)
+    assert OPERATIONS["declick_final"].order == 52  # hidden residual pass (M4d)
+    assert OPERATIONS["declick_final"].hidden is True
     assert OPERATIONS["highpass"].params[0].default == 90
 
 
@@ -244,10 +251,11 @@ def test_resolve_disables_unimplemented_ops():
     assert "denoise" in ids  # implemented in M6
     assert "dereverb" in ids  # implemented in M6
     assert "silence" in ids  # implemented in M5
-    # the runnable part keeps the new effective order
+    # the runnable part keeps the new effective order — M4d: silence
+    # before enhance, plus the auto-inserted hidden residual pass
     assert [op_id for op_id, _ in eff.ops] == [
         "highpass", "dehum", "declick", "denoise", "dereverb",
-        "breaths", "enhance", "silence", "loudness"
+        "breaths", "silence", "enhance", "declick_final", "loudness"
     ]
     # explicit opt-in to an unimplemented op gets the same graceful path
     eff2 = resolve({"separate": {}, "loudness": {}}, _all_available(),

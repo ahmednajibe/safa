@@ -374,6 +374,10 @@ export const en = {
       "Restore damaged voice",
       "Tries to rebuild muffled or badly recorded speech (experimental).",
     ),
+    declick_final: op(
+      "Remove mouth clicks (final pass)",
+      "A gentle second click pass after voice polish, catching clicks that were uncovered.",
+    ),
     silence: op(
       "Cut silence",
       "Removes the silent parts so only the speech is left (or just shortens long pauses).",
@@ -485,6 +489,23 @@ export const en = {
             few: "{n} breaths",
             many: "{n} breaths",
             other: "{n} breaths",
+          },
+        },
+      },
+    },
+    clicks_removed: {
+      text: "Removed {clicks}",
+      zero: "No mouth clicks found",
+      plurals: {
+        clicks: {
+          count: "count",
+          forms: {
+            zero: "{n} mouth clicks",
+            one: "{n} mouth click",
+            two: "{n} mouth clicks",
+            few: "{n} mouth clicks",
+            many: "{n} mouth clicks",
+            other: "{n} mouth clicks",
           },
         },
       },

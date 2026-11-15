@@ -14,7 +14,11 @@ from pathlib import Path
 
 from backend.core.messages import msg
 from backend.media.ffmpeg_run import run_filter
-from backend.media.silence_detect import non_speech_dbfs
+from backend.media.silence_detect import (
+    non_speech_dbfs,
+    speech_intervals_vad,
+)
+from backend.media.vad_stats import ensure_vad_stats
 from backend.operations.base import OpContext, OpResult, stage_wav
 
 _STRENGTH_MAX = 40.0
@@ -29,10 +33,22 @@ def run(
     out = stage_wav(ctx, "denoise")
     requested = ctx.device
 
-    # measure the floor under non-speech first so the summary is honest
+    # One VAD pass feeds three consumers: the M4d carried stats (first
+    # VAD stage records the pre-cut floor + speech level for enhance)
+    # and both non-speech floor measurements.
+    speech = speech_intervals_vad(
+        in_wav,
+        report=lambda p: ctx.report(0.04 * p, None),
+        should_cancel=ctx.should_cancel,
+    )
+    ensure_vad_stats(
+        in_wav, ctx.analysis, speech=speech,
+        should_cancel=ctx.should_cancel,
+    )
     in_ns = non_speech_dbfs(
         in_wav,
-        report=lambda p: ctx.report(0.05 * p, None),
+        intervals=speech,
+        report=lambda p: ctx.report(0.04 + 0.01 * p, None),
         should_cancel=ctx.should_cancel,
     )
 

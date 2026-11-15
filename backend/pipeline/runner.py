@@ -87,6 +87,9 @@ def run_pipeline(
     outputs: list[OutputFile] = []
     # ``current`` threads the working wav + the composed timeline (source
     # time → current output time) through the stages; set by _decode.
+    # ``analysis`` is the shared measurement dict every stage's OpContext
+    # points at (M4d — pre-cut stats and breath spans survive the cut).
+    analysis: dict = {}
     current = {"wav": src_wav, "timeline": None}
     # R1 C2: same 25 fps fallback the renderer uses — snapping and
     # rendering must agree when the probe reports no frame rate.
@@ -216,6 +219,7 @@ def run_pipeline(
                 audio_format=output.audio_format,
                 display_stem=stem,
                 preview=preview,
+                analysis=analysis,
             )
             result = fn(prev, params or {}, ctx)
             out_wav = Path(result.path)

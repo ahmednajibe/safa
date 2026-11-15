@@ -428,5 +428,8 @@ def detect_breaths(
         "voiced_onsets": voiced_onsets,
         "hop_s": HOP_S,
         "frame_s": FRAME_S,
+        # M4d: the 10 ms-grid VAD probability array — the op publishes
+        # VAD-gated speech stats into ctx.analysis from it.
+        "speech_prob": p,
     }
     return result, detail

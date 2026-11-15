@@ -29,6 +29,8 @@ def list_operations() -> dict:
     caps = detect_capabilities()
     out = []
     for spec in ops_in_order():
+        if spec.hidden:
+            continue  # M4d: pipeline-internal stages get no card
         d = asdict(spec)
         reason = unavailable_code(spec, caps.modules, caps.models)
         d["available"] = reason is None

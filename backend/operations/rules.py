@@ -224,5 +224,19 @@ def resolve(
                 "karaoke_speech_op", reason, blocker="separate"
             )
 
+    # M4d: the hidden residual declick pass exists only as the tail of a
+    # real declick + enhance chain (it catches what the enhance stage's
+    # compressor/presence EQ exposes) — auto-insert it right after
+    # enhance (order 52) only when both run, and drop a stray selection
+    # that arrived without its parent ops.
+    if (
+        "declick" in merged
+        and "enhance" in merged
+        and "declick_final" in implemented
+    ):
+        merged["declick_final"] = validate_params("declick_final", {})
+    else:
+        merged.pop("declick_final", None)
+
     ordered = sorted(merged, key=lambda op_id: OPERATIONS[op_id].order)
     return Effective(ops=[(op_id, merged[op_id]) for op_id in ordered], disabled=disabled)

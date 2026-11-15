@@ -1,82 +1,112 @@
-"""Mouth-click detection + band-limited repair (M4c Task 1).
+"""Mouth-click detection + band-limited repair (M4c Task 1, M4d rewrite).
 
-Saliva clicks and lip smacks live almost entirely above ~2.5 kHz and last a
-fraction of a millisecond to a few milliseconds — which is why ffmpeg's
-full-band ``adeclick`` missed them (the low/mid voice energy masks the
-prediction error) and why the fix works band-limited.
+Saliva clicks and lip smacks live almost entirely above ~2.5 kHz and
+last a fraction of a millisecond to ~3.5 ms. M4d retargets the failure
+modes the M4c detector showed on real speech (Argon/Astra second
+round): mid-band vetoes rejected clicks whose mid band was simply
+modulated by the surrounding vowel, MAD self-masking hid clicks inside
+speech bursts, and the unconstrained least-squares AR repair once
+amplified a click by +11 dB.
 
-Detector (Argon §1 + Astra §1, tuned to the plan's constants):
+Detector — everything happens on the complementary >2.5 kHz band:
 
-- high band: zero-phase 4th-order Butterworth 2.5–12 kHz (``sosfiltfilt``);
-  mid band 500–2500 Hz for the consonant tests.
-- feature: 1.5 ms RMS envelope of the high band on 1 ms hops; local floor =
-  40 ms sliding median + MAD. Candidates: level excess ≥ 2·z dB over that
-  floor, or a sharp high-band edge (≥8 dB/ms) — the second path catches
-  clicks inside speech where the floor is already elevated. Runs are only
-  kept if some frame still reaches z-worth of excess.
-- click width is measured within 6 dB of the run peak (0.4–6 ms); the raw
-  above-floor run overstates it in silence because the decay tail keeps
-  "elevated" over a −180 dB floor.
-- band specificity: mid-band excess must stay small where the mid band is
-  actually active, and no sharp mid-band edge may coincide with the
-  click's sharpest high-band edge (a speech onset moves all bands).
-- veto (consonant protection, gated to ≥ −60 dBFS so silence can't veto):
-  the high-band envelope stays within 15 dB of the peak for >14 ms
-  (sustained burst = consonant), or the mid-band level inside the span
-  rises >8 dB over its ±15 ms neighbourhood.
+- Short STFT: ``n_fft`` 256, Hann window 128 (2.67 ms), hop 32 (0.67 ms).
+  Per-bin baseline = temporal median over ±15 ms computed in two passes
+  (clip at median + 6 dB, re-median) so bursts can't raise their own
+  floor — the ±15 ms window doubles as the harmonic context: a
+  sustained harmonic is exactly what the median describes.
+- MAD per bin capped at 3 dB; a bin-frame is flagged when its excess
+  over ``baseline + 1.4826·MAD`` reaches the threshold (normal 7 dB,
+  gentle 9, strong 5, residual pass 8).
+- Consonant protection by persistence: binary opening of the flag mask
+  with ≥6 ms per-bin persistence deletes fricative/aspiration tails
+  (t/k/p/s/sh/ch hold −12 dB for 9–30 ms) without touching 0.7–4 ms
+  clicks. The old mid-band vetoes are gone.
+- A candidate needs ≥30 % of the 4–14 kHz bins flagged inside the same
+  0.5–3.5 ms event (event duration measured at −12 dB from the band
+  energy peak).
+- Word-initial plosive veto, narrow: the <2.5 kHz envelope jumps >10 dB
+  within 2 ms after ≥15 ms below −50 dBFS AND a >8 ms high-band hold
+  follows — the silence→burst→hold shape of a plosive release.
+- GCI comb veto: high-band-poor (4.5–14 kHz energy >25 dB under the
+  0.5–2.5 kHz band) candidates that repeat at the pitch period
+  (6–12 ms, ±2.5 dB) are glottal ticks, not clicks.
+- Bursts: events whose centres are ≤50 ms apart form one group; each
+  tick is still detected and repaired individually.
 
-Repair: split into low (<2.5 kHz) and high (everything above) with a
-complementary filter so ``low + high`` rebuilds the input exactly; inside the
-high band only, each ≤6 ms flagged span is replaced (+0.5 ms raised-cosine
-crossfades) by bidirectional least-squares AR prediction (order 24, 10 ms of
-unflagged context per side); spans <1 ms fall back to PCHIP. The <2.5 kHz
-band and everything outside the flagged spans is bit-identical.
+Repair — the <2.5 kHz band is never touched (``low`` passes through
+bit-identically):
+
+- isolated ticks (≤ ~3 ms, outside speech): high-band time-domain fill
+  over ``[c0−0.5 ms, c1+1.5 ms]`` by bidirectional **Burg** AR
+  prediction, order 24, reflection coefficients clipped to |k| < 0.995
+  (guaranteed stable — the M4c least-squares fit is what could blow
+  up), fitted on unflagged samples only.
+- bursts, spans >3 ms, in-speech ticks and every residual-mode repair:
+  per-bin STFT **magnitude clamping** to the local median on flagged
+  bin-frames, original phase kept, gain mask smoothed over 3 bins.
+- ≥2 ms raised-cosine crossfades at every patch edge.
+- Hard guard per span: if the repair's high-band energy would rise,
+  that span reverts to the original samples.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
-from scipy import interpolate, ndimage, signal
+from scipy import ndimage, signal
 
-_HI_BAND = (2500.0, 12000.0)   # click band, Hz
-_MID_BAND = (500.0, 2500.0)    # consonant co-energy band, Hz
+_SPLIT_HZ = 2500.0   # complementary band split
+_MID_BAND = (500.0, 2500.0)
 
-_WIN_MS = 1.5        # RMS envelope window
-_HOP_MS = 1.0        # envelope hop
-_MED_FRAMES = 41     # ~40 ms sliding-median window (odd, envelope frames)
+# STFT: n_fft 256, Hann 128 (2.67 ms @48 kHz), hop 32 (0.67 ms).
+_STFT_NFFT = 256
+_STFT_NPERSEG = 128
+_STFT_HOP = 32
 
-_MAD_SIGMA = 1.4826  # MAD → σ consistency factor
-_DB_PER_Z = 2.0      # "≥12 dB over floor (z ≥ 6 MAD)" → 2 dB per z unit
-_EDGE_DB = 8.0       # per-frame high-band edge that counts as a sharp onset
+_MED_FRAMES = 45      # ±15 ms baseline window (30 ms total)
+_BASE_CLIP_DB = 6.0   # two-stage baseline: clip input at median+6 first
+_MAD_CAP_DB = 3.0
+_MAD_SIGMA = 1.4826
+_PERSIST_FRAMES = 9   # ≥6 ms per-bin flag persistence → consonant
 
-_MIN_W_FRAMES = 1    # click width = frames within 6 dB of the run peak …
-_MAX_W_FRAMES = 6    # … 0.4–6 ms per the plan; the raw run may be longer
-_MAX_RUN_FRAMES = 12 #   because near-silence floors keep the tail "elevated"
-_MID_MAX_DB = 2.0    # band specificity: mid-band excess allowed regardless …
-_MID_RATIO = 0.25    # … or under this share of the high-band excess
-_MID_EDGE_DB = 5.0   # coincident mid-band edge floor …
-_MID_EDGE_RATIO = 0.75  # … and as a share of the high-band edge → speech onset
+_EVENT_BAND = (4000.0, 14000.0)  # bins counted for the ≥30% rule
+_FLAG_FRAC = 0.30
+_W12_MAX_MS = 3.5     # −12 dB event width ceiling
+_EVENT_MIN_MS = 0.5
+_PEAK_MIN_DB = -70.0  # events whose 4–14 kHz peak is below this are
+                       # inaudible (noise-floor wiggles, codec hiss)
 
-_HOLD_DROP_DB = 15.0 # veto 1: envelope stays within this of the run peak …
-_HOLD_MS = 14.0      # … longer than this → sustained burst = consonant
-_MID_RISE_DB = 8.0   # veto 2: in-span mid level rises this far …
-_MID_WIN_MS = 15.0   # … above the ±15 ms neighbourhood
-_VETO_ABS_DB = -60.0 # vetoes only count above this absolute level — below it
-                     # there is no consonant to protect (silence fluctuates
-                     # many dB over a −180 dB median and would veto clicks)
+_PLOS_QUIET_MS = 15.0   # word-initial plosive veto: …
+_PLOS_QUIET_DB = -50.0  #   ≥15 ms below −50 dBFS in the low band …
+_PLOS_JUMP_DB = 10.0    #   … then a >10 dB low-band jump within 2 ms …
+_PLOS_JUMP_MS = 2.0
+_PLOS_HOLD_MS = 8.0     #   … and a >8 ms high-band hold afterwards.
+_PLOS_HOLD_DB = 15.0
 
-_SPLIT_HZ = 2500.0   # repair band split
+_GCI_HI = (4500.0, 14000.0)
+_GCI_LO = (500.0, 2500.0)
+_GCI_DELTA_DB = 25.0    # high-band-poor by more than this …
+_GCI_T0_FRAMES = (9, 18)  # … and repeating at 6–12 ms (±2.5 dB) → glottal
+_GCI_MATCH_DB = 2.5
+
+_BURST_GAP_S = 0.05
+
 _AR_ORDER = 24
-_AR_CTX_MS = 10.0    # clean context per side for the AR fit
+_AR_K_MAX = 0.995
+_AR_CTX_MS = 10.0
 _AR_MIN_CTX_MS = 2.0
-_XFADE_MS = 0.5      # raised-cosine crossfade at each patch edge
-_PCHIP_MAX_MS = 1.0  # spans shorter than this use PCHIP
-_CLIP_FACTOR = 3.0   # hard cap on predicted amplitudes (× context peak)
+_FILL_PRE_MS = 0.5    # tick fill starts 0.5 ms before the span …
+_FILL_POST_MS = 1.5   # … and ends 1.5 ms after it
+_XFADE_MS = 2.0
+_TICK_MAX_MS = 4.5    # span incl. STFT window that still counts as a tick
+_INSPEECH_DBFS = -45.0  # mid-band level above this → in-speech → clamp
+_CLAMP_EXCESS_DB = 3.0  # gain only where per-bin excess > 3 dB
+_CLAMP_CTX_MS = 50.0    # baseline context for the STFT clamp
+_CLAMP_WRITE_MS = 4.0   # write region beyond the span
 
 
-def _band(x: np.ndarray, sr: int, lo: float, hi: float) -> np.ndarray:
-    hi = min(hi, sr * 0.45)
-    sos = signal.butter(4, [lo, hi], btype="band", fs=sr, output="sos")
-    return signal.sosfiltfilt(sos, x)
+# ---- band split --------------------------------------------------------------
 
 
 def split_bands(
@@ -95,200 +125,289 @@ def split_bands(
     return low, x - low
 
 
-def _envelope_db(
-    x: np.ndarray, sr: int
-) -> tuple[np.ndarray, int, int]:
-    """1.5 ms RMS envelope in dB on 1 ms hops; frame ``i`` covers
-    ``[i*hop, i*hop + win)`` samples."""
-    win = max(1, int(round(sr * _WIN_MS / 1000)))
-    hop = max(1, int(round(sr * _HOP_MS / 1000)))
-    n = 1 + (len(x) - win) // hop
-    if n <= 0:
+def _band(x: np.ndarray, sr: int, lo: float, hi: float) -> np.ndarray:
+    hi = min(hi, sr * 0.45)
+    sos = signal.butter(4, [lo, hi], btype="band", fs=sr, output="sos")
+    return signal.sosfiltfilt(sos, x)
+
+
+def _env_db(x: np.ndarray, sr: int, win_ms: float, hop_ms: float):
+    """Short RMS envelope in dB; frame i covers [i*hop, i*hop+win)."""
+    win = max(1, int(sr * win_ms / 1000))
+    hop = max(1, int(sr * hop_ms / 1000))
+    if len(x) < win:
         return np.zeros(0), win, hop
-    fr = np.lib.stride_tricks.sliding_window_view(x, win)[::hop]
-    rms = np.sqrt((fr * fr).mean(axis=1) + 1e-18)
-    return 20 * np.log10(np.maximum(rms, 1e-9)), win, hop
+    n = 1 + (len(x) - win) // hop
+    idx = hop * np.arange(n)[:, None] + np.arange(win)[None, :]
+    rms = np.sqrt((x[idx] ** 2).mean(axis=1) + 1e-18)
+    return 20.0 * np.log10(np.maximum(rms, 1e-9)), win, hop
 
 
-def detect_mouth_clicks(
-    x: np.ndarray, sr: int, z_thresh: float = 6.0
-) -> list[tuple[int, int]]:
-    """Detect mouth clicks in mono ``x``; returns sample spans.
+def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    """[start, end) runs of True in a 1-D bool mask."""
+    d = np.diff(mask.astype(np.int8), prepend=0, append=0)
+    starts, ends = np.where(d == 1)[0], np.where(d == -1)[0]
+    return list(zip(starts.tolist(), ends.tolist()))
 
-    ``z_thresh`` is the sensitivity unit (plan: gentle=7, normal=6,
-    strong=5); each unit is 2 dB of required excess over the local
-    median+MAD floor.
-    """
+
+# ---- STFT analysis -----------------------------------------------------------
+
+
+def _stft(x: np.ndarray, sr: int):
+    """(freqs, times_s, Z) — frame k is centred near sample k*hop."""
+    f, t, Z = signal.stft(
+        x, fs=sr, window="hann", nperseg=_STFT_NPERSEG,
+        noverlap=_STFT_NPERSEG - _STFT_HOP, nfft=_STFT_NFFT,
+        boundary="zeros", padded=True,
+    )
+    return f, t, Z
+
+
+def _baseline(db: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per-bin (baseline_dB, excess) — two-stage temporal median + capped
+    MAD. The clip-then-re-median keeps bursts from raising their own
+    floor (MAD self-masking was M4c's biggest miss)."""
+    med1 = ndimage.median_filter(db, size=(1, _MED_FRAMES), mode="nearest")
+    clipped = np.minimum(db, med1 + _BASE_CLIP_DB)
+    base = ndimage.median_filter(
+        clipped, size=(1, _MED_FRAMES), mode="nearest"
+    )
+    mad = ndimage.median_filter(
+        np.abs(db - base), size=(1, _MED_FRAMES), mode="nearest"
+    )
+    floor = base + _MAD_SIGMA * np.minimum(mad, _MAD_CAP_DB)
+    return floor, db - floor
+
+
+@dataclass
+class ClickEvent:
+    """One detected click/burst tick (samples + detector metadata)."""
+
+    start: int
+    end: int
+    score_db: float   # peak band-frame excess over the local baseline
+    burst: bool = False
+
+
+def _band_profile(mag: np.ndarray, freqs: np.ndarray) -> np.ndarray:
+    """4–14 kHz summed energy per frame, in dB — the event profile used
+    for the −12 dB width and the GCI repeat test."""
+    e_bins = (freqs >= _EVENT_BAND[0]) & (freqs <= _EVENT_BAND[1])
+    e = (mag[e_bins] ** 2).sum(axis=0)
+    return 10.0 * np.log10(np.maximum(e, 1e-18))
+
+
+def _plosive_veto(
+    low_env: np.ndarray,
+    hi_env: np.ndarray,
+    env_hop: int,
+    sr: int,
+    t0_samp: int,
+    peak_db: float,
+) -> bool:
+    """silence → low-band jump → high-band hold = word-initial plosive."""
+    hop_s = env_hop / sr
+    i0 = int(round(t0_samp / env_hop))
+    pre_a = int(round((t0_samp / sr - _PLOS_QUIET_MS / 1000 - 0.002) / hop_s))
+    pre_b = int(round((t0_samp / sr - 0.002) / hop_s))
+    if pre_a < 0 or pre_b <= pre_a or i0 >= len(low_env):
+        return False
+    if not (low_env[pre_a:pre_b] < _PLOS_QUIET_DB).all():
+        return False
+    j0 = max(0, i0 - int(round(0.001 / hop_s)))
+    j1 = min(len(low_env), i0 + int(round(_PLOS_JUMP_MS / 1000 / hop_s)) + 1)
+    if float(low_env[j0:j1].max() - low_env[pre_a:pre_b].max()) <= _PLOS_JUMP_DB:
+        return False
+    # >8 ms high-band hold within 15 dB of the envelope's own peak
+    # (band_db and the RMS envelope are different scales — compare the
+    # hold to the envelope peak, not the STFT sum-energy peak).
+    hi_pk = float(hi_env[max(0, i0 - 2): i0 + 4].max())
+    hold = 0.0
+    k = i0
+    lim = min(len(hi_env), i0 + int(round(0.015 / hop_s)))
+    while k < lim and hi_env[k] >= hi_pk - _PLOS_HOLD_DB:
+        hold += hop_s
+        k += 1
+    return hold * 1000.0 > _PLOS_HOLD_MS
+
+
+def _gci_veto(
+    band_db: np.ndarray,
+    e_lo: np.ndarray,
+    e_hi: np.ndarray,
+    pk_frame: int,
+) -> bool:
+    """High-band-poor events repeating at the pitch period are glottal
+    pulses (GCI comb), not clicks."""
+    if pk_frame >= len(e_lo) or pk_frame >= len(e_hi):
+        return False
+    if float(e_hi[pk_frame]) >= float(e_lo[pk_frame]) - _GCI_DELTA_DB:
+        return False
+    pk = float(band_db[pk_frame])
+    lo, hi = _GCI_T0_FRAMES
+    for t0 in range(lo, hi + 1):
+        for q in (pk_frame - t0, pk_frame + t0):
+            if 0 <= q < len(band_db) and abs(float(band_db[q]) - pk) <= _GCI_MATCH_DB:
+                return True
+    return False
+
+
+def detect_events(
+    x: np.ndarray, sr: int, z_thresh: float = 7.0
+) -> list[ClickEvent]:
+    """Detected clicks with score/burst metadata (audit + repair)."""
     x = np.asarray(x, dtype=np.float64)
     if len(x) < int(sr * 0.05):
         return []
-    hi = _band(x, sr, *_HI_BAND)
-    mid = _band(x, sr, *_MID_BAND)
-    e_hi, win, hop = _envelope_db(hi, sr)
-    e_mid, _, _ = _envelope_db(mid, sr)
-    if len(e_hi) < _MED_FRAMES:
+    low, high = split_bands(x, sr)
+    freqs, _t, Z = _stft(high, sr)
+    mag = np.abs(Z)
+    db = 20.0 * np.log10(np.maximum(mag, 1e-9))
+    floor, excess = _baseline(db)
+
+    flagged = excess >= float(z_thresh)
+    persistent = ndimage.binary_opening(
+        flagged, structure=np.ones((1, _PERSIST_FRAMES), bool)
+    )
+    transient = flagged & ~persistent
+
+    e_bins = (freqs >= _EVENT_BAND[0]) & (freqs <= _EVENT_BAND[1])
+    n_eligible = int(e_bins.sum())
+    if n_eligible == 0 or not transient.any():
+        return []
+    frac = transient[e_bins].mean(axis=0)
+    hot = ndimage.binary_closing(frac >= _FLAG_FRAC, structure=np.ones(3))
+    runs = _runs(hot)
+    if not runs:
         return []
 
-    med_hi = ndimage.median_filter(e_hi, _MED_FRAMES, mode="nearest")
-    mad_hi = ndimage.median_filter(
-        np.abs(e_hi - med_hi), _MED_FRAMES, mode="nearest"
+    band_db = _band_profile(mag, freqs)
+    # GCI-veto band energies are measured on the FULL signal — the
+    # high-band-only STFT can't see the 0.5–2.5 kHz dominance that marks
+    # glottal pulses. Env hop matches the STFT hop (32 samples).
+    e_lo, _, _ = _env_db(
+        _band(x, sr, *_GCI_LO), sr,
+        _STFT_NPERSEG / sr * 1000.0, _STFT_HOP / sr * 1000.0,
     )
-    med_mid = ndimage.median_filter(e_mid, _MED_FRAMES, mode="nearest")
-    mad_mid = ndimage.median_filter(
-        np.abs(e_mid - med_mid), _MED_FRAMES, mode="nearest"
+    e_hi, _, _ = _env_db(
+        _band(x, sr, *_GCI_HI), sr,
+        _STFT_NPERSEG / sr * 1000.0, _STFT_HOP / sr * 1000.0,
     )
-    floor_db = med_hi + _MAD_SIGMA * mad_hi
-    floor_mid = med_mid + _MAD_SIGMA * mad_mid
-    excess_hi = e_hi - floor_db
-    excess_mid = e_mid - floor_mid
+    low_env, _ew, eh = _env_db(low, sr, 1.5, 1.0)
+    hi_env, _, _ = _env_db(high, sr, 1.5, 1.0)
 
-    # Two candidate paths, OR-ed per frame and with ≤2-frame gaps closed.
-    # A: level — the click sticks ≥ 2·z dB out of the floor (plan's
-    #    "≥12 dB, z≥6").
-    # B: transient — a sharp high-band edge (≥8 dB/ms), catching clicks
-    #    inside speech where the level contrast is lower but the onset is
-    #    still instantaneous; a run is only kept if some frame in it still
-    #    reaches z-worth of excess.
-    edge_hi = np.abs(np.diff(e_hi, append=e_hi[-1]))
-    edge_mid = np.abs(np.diff(e_mid, append=e_mid[-1]))
-    cand = ndimage.binary_closing(
-        (excess_hi >= z_thresh * _DB_PER_Z) | (edge_hi >= _EDGE_DB),
-        structure=np.ones(3, bool),
-    )
-
-    d = np.diff(cand.astype(np.int8), prepend=0, append=0)
-    starts, ends = np.where(d == 1)[0], np.where(d == -1)[0]
-    hop_ms = hop / sr * 1000.0
-    mid_pad = int(round(_MID_WIN_MS / hop_ms))
-
-    spans: list[tuple[int, int]] = []
-    for a, b in zip(starts, ends):
-        eh = float(excess_hi[a:b].max())
-        if eh < z_thresh:
+    hop_ms = _STFT_HOP / sr * 1000.0
+    events: list[ClickEvent] = []
+    for a, b in runs:
+        pk_off = int(np.argmax(band_db[a:b]))
+        p = a + pk_off
+        pk = float(band_db[p])
+        # −12 dB width about the peak, but never wider than the local
+        # speech floor allows: in loud sustained speech the profile can't
+        # drop 12 dB, so measure the impulse's own width above
+        # max(pk−12, local_median+3).
+        cl, cr = max(0, p - 60), min(len(band_db), p + 60)
+        ctx = np.r_[band_db[cl:p - 2], band_db[p + 3:cr]] if p - 2 > cl \
+            else band_db[p + 3:cr]
+        med = float(np.median(ctx)) if len(ctx) else -np.inf
+        thresh = max(pk - 12.0, med + 3.0)
+        l = p
+        while l > 0 and band_db[l - 1] >= thresh:
+            l -= 1
+        r = p
+        while r + 1 < len(band_db) and band_db[r + 1] >= thresh:
+            r += 1
+        if not (_EVENT_MIN_MS <= (r - l) * hop_ms <= _W12_MAX_MS):
             continue
-        pk = float(e_hi[a:b].max())
-
-        # Click width = frames within 6 dB of the peak (FWHM). The raw run
-        # can be far longer in silence (the whole decay tail sits above a
-        # −180 dB floor), so the run itself is only bounded loosely.
-        w_eff = int((e_hi[a:b] > pk - 6.0).sum())
-        if (
-            not (_MIN_W_FRAMES <= w_eff <= _MAX_W_FRAMES)
-            or (b - a) > _MAX_RUN_FRAMES
-        ):
+        if pk < _PEAK_MIN_DB:
             continue
-
-        # The click's core = near-peak frames; run edge frames belong to the
-        # surrounding speech and must not feed the mid-band tests.
-        core = np.where(e_hi[a:b] > pk - _HOLD_DROP_DB)[0]
-        c0, c1 = a + int(core[0]), a + int(core[-1]) + 1
-
-        # Band specificity: a click adds energy in the high band only, so
-        # mid-band excess stays ≈0 where the mid band actually carries
-        # energy (>-60 dBFS; below that its envelope is meaningless).
-        lo, hi_ = max(0, c0 - 2), min(len(e_hi), c1 + 2)
-        active = e_mid[lo:hi_] > _VETO_ABS_DB
-        em = float(excess_mid[lo:hi_][active].max(initial=0.0))
-        if em > max(_MID_MAX_DB, _MID_RATIO * eh):
+        if _plosive_veto(low_env, hi_env, eh, sr, l * _STFT_HOP, pk):
             continue
-
-        # A real speech onset moves all bands together: a sharp mid-band
-        # edge coincident with the click's sharpest high-band edge →
-        # consonant, not a click.
-        fa = a + int(np.argmax(edge_hi[a:b]))
-        edg_m = float(edge_mid[max(0, fa - 1): fa + 2].max())
-        if (
-            e_mid[fa] > _VETO_ABS_DB
-            and edg_m > max(_MID_EDGE_DB, _MID_EDGE_RATIO * edge_hi[fa])
-        ):
+        if _gci_veto(band_db, e_lo, e_hi, p):
             continue
-
-        # Veto 1: the high band stays within 15 dB of the peak for >14 ms
-        # → sustained consonant burst. A click decays fast even in silence;
-        # measuring from the peak (not the −180 dB floor) keeps near-zero
-        # neighbourhoods from vetoing clicks.
-        near = e_hi > max(pk - _HOLD_DROP_DB, _VETO_ABS_DB)
-        h0, h1 = a, b - 1
-        while h0 > 0 and near[h0 - 1]:
-            h0 -= 1
-        while h1 + 1 < len(near) and near[h1 + 1]:
-            h1 += 1
-        if (h1 - h0 + 1) * hop_ms > _HOLD_MS:
-            continue
-
-        # Veto 2: the mid band inside the click core rises >8 dB over its
-        # ±15 ms neighbourhood → speech onset (only where mid carries
-        # energy).
-        cl_, cr_ = max(0, c0 - mid_pad), min(len(e_mid), c1 + mid_pad)
-        ctx = np.concatenate([e_mid[cl_:c0], e_mid[c1:cr_]])
-        ctx = ctx[ctx > _VETO_ABS_DB]
-        ctx_med = float(np.median(ctx)) if len(ctx) else -np.inf
-        if e_mid[c0:c1].max() > _VETO_ABS_DB and (
-            float(e_mid[c0:c1].max()) - ctx_med > _MID_RISE_DB
-        ):
-            continue
-
-        # Repair span: the near-peak core plus the RMS-window tail.
-        start = c0 * hop
-        end = min(len(x), (c1 - 1) * hop + win)
-        spans.append((int(start), int(end)))
-    return spans
+        score = float(excess[e_bins][:, a:b].max())
+        events.append(
+            ClickEvent(
+                start=int(l * _STFT_HOP),
+                end=int(min(len(x), r * _STFT_HOP + _STFT_NPERSEG)),
+                score_db=score,
+            )
+        )
+    # Burst grouping: centres ≤50 ms apart.
+    centres = [(e.start + e.end) / 2.0 for e in events]
+    gap = _BURST_GAP_S * sr
+    for i, e in enumerate(events):
+        e.burst = any(
+            abs(centres[i] - centres[j]) <= gap
+            for j in range(len(events))
+            if j != i
+        )
+    return events
 
 
-# ---- repair ----------------------------------------------------------------
+def detect_mouth_clicks(
+    x: np.ndarray, sr: int, z_thresh: float = 7.0
+) -> list[tuple[int, int]]:
+    """Detect mouth clicks in mono ``x``; returns sample spans.
+
+    ``z_thresh`` is the per-bin-frame excess threshold in dB
+    (plan: gentle 9, normal 7, strong 5, residual pass 8).
+    """
+    return [(e.start, e.end) for e in detect_events(x, sr, z_thresh)]
+
+
+# ---- repair ------------------------------------------------------------------
+
+
+def _burg_coefs(x: np.ndarray, order: int) -> np.ndarray:
+    """Burg AR coefficients a[0..order] (a[0]=1; x[n] ≈ −Σ a[k] x[n−k]).
+
+    Reflection coefficients are clipped to |k| < 0.995 at every
+    recursion step, which guarantees a stable minimum-phase fit — the
+    M4c unconstrained least-squares fit is what once amplified a click
+    by +11 dB.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    n = len(x)
+    ef = x.copy()
+    eb = x.copy()
+    a = np.zeros(order + 1)
+    a[0] = 1.0
+    for m in range(1, order + 1):
+        ff = ef[m:].copy()
+        bb = eb[m - 1: n - 1].copy()
+        den = float(ff @ ff + bb @ bb)
+        k = 0.0 if den <= 1e-30 else float(-2.0 * (bb @ ff) / den)
+        k = float(np.clip(k, -_AR_K_MAX, _AR_K_MAX))
+        a_new = a.copy()
+        if m > 1:
+            a_new[1:m] = a[1:m] + k * a[m - 1:0:-1]
+        a_new[m] = k
+        a = a_new
+        ef[m:] = ff + k * bb
+        eb[m:] = bb + k * ff
+    return a
 
 
 def _ar_predict(ctx: np.ndarray, order: int, n_out: int) -> np.ndarray | None:
-    """Least-squares AR fit ``x[t] ≈ Σ a_k x[t-k-1]`` on ``ctx``, iterated
-    ``n_out`` samples forward. Returns None when the fit can't be trusted."""
+    """Iterate the Burg fit ``n_out`` samples forward from ``ctx``."""
     if len(ctx) < order * 2 or len(ctx) - order <= order:
         return None
-    win = np.lib.stride_tricks.sliding_window_view(ctx, order)
-    X = win[: len(ctx) - order][:, ::-1]
-    try:
-        coef, *_ = np.linalg.lstsq(X, ctx[order:], rcond=None)
-    except np.linalg.LinAlgError:
-        return None
-    clip = _CLIP_FACTOR * float(np.abs(ctx).max()) + 1e-6
+    coefs = _burg_coefs(ctx, order)
     buf = np.empty(order + n_out)
     buf[:order] = ctx[-order:]
+    clip = 4.0 * float(np.abs(ctx).max()) + 1e-6
     for i in range(n_out):
-        v = float(coef @ buf[i:i + order][::-1])
+        v = -float(coefs[1:] @ buf[i: i + order][::-1])
         buf[order + i] = np.clip(v, -clip, clip)
     out = buf[order:]
     return out if np.isfinite(out).all() else None
 
 
-def _pchip_fill(
-    high: np.ndarray, ra: int, rb: int, flagged: np.ndarray, sr: int
-) -> np.ndarray:
-    """PCHIP-interpolate the flagged region from unflagged knots at its
-    sides — the <1 ms span path (plan: 'fall back to PCHIP')."""
-    n = rb - ra
-    side = int(0.003 * sr)
-    li = np.arange(max(0, ra - side), ra)
-    ri = np.arange(rb, min(len(high), rb + side))
-    lx = li[~flagged[li]][-8:]
-    rx = ri[~flagged[ri]][:8]
-    kx = np.r_[lx, rx]
-    if len(kx) < 2:
-        return np.zeros(n)
-    ky = high[kx]
-    xs = np.arange(ra, rb, dtype=np.float64)
-    try:
-        rep = interpolate.PchipInterpolator(kx, ky, extrapolate=True)(xs)
-    except ValueError:
-        rep = np.interp(xs, kx, ky)
-    limit = max(1e-6, 1.5 * float(np.abs(ky).max()))
-    return np.clip(np.asarray(rep, dtype=np.float64), -limit, limit)
-
-
 def _ar_fill(
     high: np.ndarray, ra: int, rb: int, flagged: np.ndarray, sr: int
 ) -> np.ndarray | None:
-    """Bidirectional AR fill: predict the region from each side's clean
-    context and blend with a raised-cosine weight (forward fades out,
-    backward fades in)."""
+    """Bidirectional Burg AR fill, blended with a raised-cosine weight."""
     order = _AR_ORDER
     ctx = int(_AR_CTX_MS * sr / 1000)
     min_ctx = max(order + 8, int(_AR_MIN_CTX_MS * sr / 1000))
@@ -311,16 +430,63 @@ def _ar_fill(
     return w * fwd + (1.0 - w) * bwd
 
 
+def _stft_clamp(
+    high: np.ndarray, pa: int, pb: int, sr: int
+) -> np.ndarray | None:
+    """Magnitude-clamp flagged bin-frames over [pa,pb) to the local
+    median, phase kept. Returns the patched region or None."""
+    w0 = max(0, pa - int(_CLAMP_CTX_MS * sr / 1000))
+    w1 = min(len(high), pb + int(_CLAMP_CTX_MS * sr / 1000))
+    seg = high[w0:w1]
+    if len(seg) < _STFT_NPERSEG:
+        return None
+    freqs, _t, Z = _stft(seg, sr)
+    mag = np.abs(Z)
+    db = 20.0 * np.log10(np.maximum(mag, 1e-9))
+    floor, excess = _baseline(db)
+    n_f = Z.shape[1]
+    # Only frames whose centre lies inside the write region are clamped —
+    # context frames exist purely to stabilise the baseline.
+    f0 = (pa - w0) // _STFT_HOP
+    f1 = min(n_f, (pb - w0) // _STFT_HOP + 2)
+    gain = np.ones_like(mag)
+    need = (excess > _CLAMP_EXCESS_DB)
+    need[:, :f0] = False
+    need[:, f1:] = False
+    target_mag = 10.0 ** (floor / 20.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        g = np.where(need, np.minimum(1.0, target_mag / np.maximum(mag, 1e-18)), 1.0)
+    gain = ndimage.uniform_filter(g, size=(3, 1), mode="nearest")
+    Z2 = Z * gain
+    _tt, y = signal.istft(
+        Z2, fs=sr, window="hann", nperseg=_STFT_NPERSEG,
+        noverlap=_STFT_NPERSEG - _STFT_HOP, nfft=_STFT_NFFT,
+        boundary=True,
+    )
+    s0, s1 = pa - w0, min(len(y), pb - w0)
+    if s1 <= s0 or s0 < 0:
+        return None
+    return y[s0:s1]
+
+
 def repair_mouth_clicks(
-    x: np.ndarray, sr: int, spans: list[tuple[int, int]]
+    x: np.ndarray,
+    sr: int,
+    spans: list[tuple[int, int]],
+    *,
+    mode: str = "normal",
 ) -> np.ndarray:
     """Repair ``spans`` in mono ``x``; same length out, float64.
 
-    Only the >2.5 kHz band inside the flagged spans (+0.5 ms crossfades) is
-    modified; everything else passes through bit-identically.
+    The <2.5 kHz band and everything outside the flagged spans is
+    bit-identical. ``mode="residual"`` clamps magnitudes only (no AR
+    fill) — the gentle final pass can't inject energy.
     """
     x = np.asarray(x, dtype=np.float64)
     if not spans or len(x) < 64:
+        return x.copy()
+    spans = sorted((int(a), int(b)) for a, b in spans if b > a)
+    if not spans:
         return x.copy()
     low, high = split_bands(x, sr)
     xf = max(1, int(sr * _XFADE_MS / 1000))
@@ -329,29 +495,79 @@ def repair_mouth_clicks(
     for a, b in spans:
         flagged[max(0, a - xf):min(len(x), b + xf)] = True
 
-    pchip_max = int(_PCHIP_MAX_MS * sr / 1000)
+    # Repair-mode classification (plan Task 2).
+    centres = [(a + b) / 2.0 for a, b in spans]
+    gap = _BURST_GAP_S * sr
+    tick_max = int(_TICK_MAX_MS * sr / 1000)
+    mid = _band(x, sr, *_MID_BAND)
+
     out_high = high.copy()
-    for a, b in spans:
-        ra, rb = max(0, a - xf), min(len(x), b + xf)
-        n = rb - ra
-        if n <= 0:
+    for i, (a, b) in enumerate(spans):
+        a, b = max(0, a), min(len(x), b)
+        if b <= a:
             continue
-        rep = (
-            _pchip_fill(high, ra, rb, flagged, sr)
-            if n <= pchip_max
-            else _ar_fill(high, ra, rb, flagged, sr)
+        burst = any(
+            abs(centres[i] - centres[j]) <= gap
+            for j in range(len(spans))
+            if j != i
         )
-        if rep is None:
-            rep = _pchip_fill(high, ra, rb, flagged, sr)
-        # raised-cosine edge crossfades between original and repair
-        w = np.ones(n)
-        k = min(xf, n // 2)
-        if k > 0:
-            ramp = 0.5 - 0.5 * np.cos(np.pi * np.arange(k) / k)
-            w[:k] = ramp
-            w[n - k:] = ramp[::-1]
-        out_high[ra:rb] = high[ra:rb] * (1.0 - w) + rep * w
+        ma, mb = max(0, a - int(0.001 * sr)), min(len(x), b + int(0.001 * sr))
+        in_speech = (
+            float(np.sqrt((mid[ma:mb] ** 2).mean() + 1e-18))
+            > 10.0 ** (_INSPEECH_DBFS / 20.0)
+        )
+        is_tick = (b - a) <= tick_max
+        use_ar = (
+            mode != "residual"
+            and is_tick
+            and not burst
+            and not in_speech
+        )
+        ra = max(0, a - (int(_FILL_PRE_MS * sr / 1000) + xf))
+        rb = min(len(x), b + int(_FILL_POST_MS * sr / 1000) + xf)
+
+        patched_seg: np.ndarray | None = None
+        p0, p1 = ra, rb
+        if use_ar:
+            rep = _ar_fill(high, ra, rb, flagged, sr)
+            if rep is not None:
+                n = rb - ra
+                w = np.ones(n)
+                k = min(xf, n // 2)
+                if k > 0:
+                    ramp = 0.5 - 0.5 * np.cos(np.pi * np.arange(k) / k)
+                    w[:k] = ramp
+                    w[n - k:] = ramp[::-1]
+                patched_seg = high[ra:rb] * (1.0 - w) + rep * w
+        if patched_seg is None:
+            # STFT magnitude clamp path (bursts / wide / in-speech /
+            # residual / AR fallback).
+            p0 = max(0, a - int(_CLAMP_WRITE_MS * sr / 1000) - xf)
+            p1 = min(len(x), b + int(_CLAMP_WRITE_MS * sr / 1000) + xf)
+            patched_seg = _stft_clamp(high, p0, p1, sr)
+
+        if patched_seg is not None:
+            seg = patched_seg[: p1 - p0]
+            if len(seg) == p1 - p0:
+                out_high[p0:p1] = seg
+            else:
+                out_high[p0:p0 + len(seg)] = seg
+
+        # Hard guard: never let a repaired span get louder in the high
+        # band — revert to the original samples when it would.
+        ga, gb = max(0, a - xf), min(len(x), b + xf)
+        e_before = float((high[ga:gb] ** 2).sum())
+        e_after = float((out_high[ga:gb] ** 2).sum())
+        if e_after > e_before * (1.0 + 1e-6):
+            out_high[p0:p1] = high[p0:p1]
+
     return low + out_high
 
 
-__all__ = ["detect_mouth_clicks", "repair_mouth_clicks", "split_bands"]
+__all__ = [
+    "detect_mouth_clicks",
+    "repair_mouth_clicks",
+    "split_bands",
+    "detect_events",
+    "ClickEvent",
+]

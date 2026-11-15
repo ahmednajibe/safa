@@ -38,12 +38,23 @@ does not also run the M6 default chain): each real recording through
 and reports per recording/language/cues/seconds/device plus a dedicated
 turbo VRAM measurement (VramSampler around one accurate run on GPU).
 
-Run:  uv run python scripts/make_review_files.py [--m5] [--m7] [--m8]
+``--m4d`` (exclusive): for ``Recording.m4a`` writes
+  - ``m4d_Recording_podcast.wav``             (new M4d pipeline)
+  - ``m4d_Recording_podcast_old_order.wav``   (pre-M4d pipeline run in a
+                                               HEAD git worktree, so the
+                                               comparison uses the actual
+                                               shipped code)
+  - ``click_audit_numbered.wav`` / ``.txt``   (top ~30 original click
+                                               candidates + residuals,
+                                               indexed by beeps, A→B)
+
+Run:  uv run python scripts/make_review_files.py [--m5] [--m7] [--m8] [--m4d]
 """
 from __future__ import annotations
 
 import difflib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -617,6 +628,289 @@ def _m8(recordings: list[Path], device: str) -> list[dict]:
     return rows
 
 
+# ---- M4d: new-order pipeline + in-speech click audit ---------------------------
+
+
+_M4D_WT = ROOT / "data" / "m4d_old_worktree"
+_M4D_AUDIT_CTX_S = 0.7
+_M4D_AUDIT_MAX = 60
+_M4D_AUDIT_LOW = 15
+
+
+def _m4d_old_pipeline(rec: Path, tmp: Path, device: str) -> Path:
+    """Run the PRE-M4d pipeline in the pinned worktree (old order, old
+    enhance calibration, old detector) via ``_m4d_old_run.py``; returns
+    the final wav path inside ``job_root``."""
+    if not (_M4D_WT / "backend" / "operations").is_dir():
+        sys.exit(
+            f"pre-M4d worktree missing: {_M4D_WT}\n"
+            "recreate against the pre-M4d commit (do NOT use a moving"
+            " HEAD):\n"
+            f"    git worktree add {_M4D_WT} <pre-M4d-commit-sha>\n"
+            "see scripts/_m4d_old_run.py docstring"
+        )
+    job_root = tmp / f"{rec.stem.replace(' ', '_')}_old_order"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(_M4D_WT)
+    # the worktree checkout has no tools/ (gitignored) — let the old
+    # code's ffmpeg lookup fall back to the main repo's bin dir.
+    env["PATH"] = (
+        str(ROOT / "tools" / "ffmpeg" / "bin")
+        + os.pathsep
+        + env.get("PATH", "")
+    )
+    r = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "_m4d_old_run.py"),
+            str(_M4D_WT), str(rec), str(job_root), device, str(ROOT),
+        ],
+        cwd=str(ROOT), env=env, capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(
+            "old-order subprocess failed:\n" + r.stdout + r.stderr
+        )
+    info = json.loads(r.stdout.strip().splitlines()[-1])
+    print(f"  old-order ops: {info['ops']}")
+    return Path(info["out"])
+
+
+def _m4d_run(
+    rec: Path, tmp: Path, ops, device: str, tag: str
+) -> dict:
+    """Like ``_run_ops`` but also returns ``job_root`` (for the
+    timeline.json the audit needs to map src→out times)."""
+    p = probe(rec)
+    job_root = tmp / f"{rec.stem.replace(' ', '_')}_{tag}"
+    stages: dict = {}
+
+    def on_progress(prog):
+        if prog.stage_seconds is not None:
+            stages[prog.stage] = prog
+
+    outs = run_pipeline(
+        media_path=rec,
+        probe=p,
+        audio_stream_index=p.audio[0].index,
+        ops=ops,
+        output=OutputSpec(audio_format="wav", keep_video=False),
+        job_root=job_root,
+        on_progress=on_progress,
+        should_cancel=lambda: False,
+        device=device,
+        display_name=rec.stem,
+    )
+    out = next(o for o in outs if o.kind == "audio")
+    return {"out": out.path, "stages": stages, "job_root": job_root}
+
+
+def _m4d_repaired_flag(
+    ev, sr: int, out_events, sro: int, tl
+) -> tuple[float, float | None, bool, str]:
+    """(t_src, t_out, repaired, note) for an ORIGINAL detection: repaired
+    means no detector event survives within 30 ms at the mapped output
+    position (the declick pass got it or the silence cut removed it)."""
+    t_src = (ev.start + ev.end) / 2 / sr
+    t_out = tl.src_to_out(t_src)
+    if t_out is None:
+        return t_src, None, True, "silence cut removed it"
+    hit = min(
+        (abs((e.start + e.end) / 2 / sro - t_out) for e in out_events),
+        default=1e9,
+    )
+    if hit < 0.03:
+        return t_src, t_out, False, "still detected after chain"
+    return t_src, t_out, True, ""
+
+
+def _m4d_audit(
+    stem: str, orig: Path, new_out: Path, timeline: Path | None
+) -> None:
+    """``click_audit_numbered_<stem>.{wav,txt}`` — a listenable A/B audit.
+
+    Every entry is ONE 1 kHz beep (60 ms) + 0.25 s, then A (original,
+    0.7 s context) -> 0.3 s -> B (new-chain output at the mapped spot)
+    -> 0.6 s before the next entry — ~2.6 s per entry. Entries: the top
+    30 original candidates by score, every candidate still detected
+    after the chain, and ``_M4D_AUDIT_LOW`` repaired lower-score sites
+    spread evenly across the score range (weak-detection consonant
+    damage check). Deduplicated, sorted chronologically, capped at
+    ``_M4D_AUDIT_MAX`` so the file stays under ~3 min. Each A/B pair is
+    peak-normalized with ONE gain so the before/after loudness relation
+    stays truthful."""
+    import soundfile as sf
+
+    from backend.media.mouthclick import detect_events
+
+    x, sr = sf.read(str(orig), dtype="float64", always_2d=True)
+    y, sro = sf.read(str(new_out), dtype="float64", always_2d=True)
+    xm, ym = x.mean(axis=1), y.mean(axis=1)
+    tl = (
+        Timeline.from_dict(json.loads(timeline.read_text()))
+        if timeline and timeline.exists()
+        else Timeline.identity(len(x) / sr)
+    )
+
+    orig_events = sorted(
+        detect_events(xm, sr), key=lambda e: -e.score_db
+    )                                     # normal z=7 = shipped pass
+    out_events = detect_events(ym, sro)   # what's left after the chain
+
+    flagged = [
+        (ev, *_m4d_repaired_flag(ev, sr, out_events, sro, tl))
+        for ev in orig_events
+    ]
+    rows: list[dict] = []
+    for ev, t_src, t_out, repaired, note in flagged[:30]:
+        rows.append({
+            "t_src": t_src, "t_out": t_out,
+            "cls": "burst" if ev.burst else "click",
+            "repaired": repaired, "score": ev.score_db, "note": note,
+        })
+    # lower-score repaired sites, evenly across the score range
+    low_pool = [f for f in flagged[30:] if f[3]]
+    if len(low_pool) > _M4D_AUDIT_LOW:
+        idx = np.linspace(0, len(low_pool) - 1, _M4D_AUDIT_LOW)
+        low_pool = [low_pool[int(round(i))] for i in idx]
+    for ev, t_src, t_out, _r, note in low_pool:
+        rows.append({
+            "t_src": t_src, "t_out": t_out,
+            "cls": "burst" if ev.burst else "click",
+            "repaired": True, "score": ev.score_db,
+            "note": note or "low-score repaired",
+        })
+    # residual detections in the output matching no selected row
+    matched = {r["t_out"] for r in rows if r["t_out"] is not None}
+    for e in out_events:
+        t_out = (e.start + e.end) / 2 / sro
+        if any(abs(t_out - m) < 0.03 for m in matched):
+            continue
+        t_src = tl.out_to_src(t_out)
+        rows.append({
+            "t_src": t_src if t_src is not None else t_out,
+            "t_out": t_out,
+            "cls": "burst" if e.burst else "click",
+            "repaired": False, "score": e.score_db,
+            "note": "residual (post-chain detection)"
+            + ("" if t_src is not None else ", unmapped"),
+        })
+    n_total = len(rows)
+    if n_total > _M4D_AUDIT_MAX:
+        # keep every top-30 + low-score row; fill the rest with the
+        # STRONGEST residuals (a chronological cut would drop the end
+        # of the file from the audit)
+        n_fixed = sum(1 for r in rows if r["repaired"] or not
+                      r["note"].startswith("residual"))
+        fixed, resid = rows[:n_fixed], rows[n_fixed:]
+        resid.sort(key=lambda r: -r["score"])
+        rows = fixed + resid[:max(0, _M4D_AUDIT_MAX - len(fixed))]
+    rows.sort(key=lambda r: r["t_src"])
+
+    half = int(_M4D_AUDIT_CTX_S / 2 * sr)
+    beep_t = np.arange(int(0.060 * sr)) / sr
+    beep = np.sin(2 * np.pi * 1000 * beep_t) * 10.0 ** (-6.0 / 20.0)
+    fade = int(0.005 * sr)
+    beep[:fade] *= np.linspace(0, 1, fade)
+    beep[-fade:] *= np.linspace(1, 0, fade)
+    gap_beep = np.zeros(int(0.25 * sr))
+    gap_ab = np.zeros(int(0.30 * sr))
+    gap_next = np.zeros(int(0.60 * sr))
+
+    def ctx(mono, centre_s, sr_):
+        c = int(round(centre_s * sr_))
+        seg = mono[max(0, c - half): c + half]
+        if len(seg) < 2 * half:
+            seg = np.pad(seg, (0, 2 * half - len(seg)))
+        return seg[: 2 * half]
+
+    audio: list[np.ndarray] = []
+    txt = [
+        f"# M4d click audit — {stem}.m4a",
+        "# per entry: ONE 1 kHz beep (60 ms) + 0.25 s, then",
+        "# A = ORIGINAL 0.7 s context -> 0.3 s -> B = new podcast",
+        "# chain output at the same spot (mapped through the timeline).",
+        "# repaired=yes: no detector event remains within 30 ms at the",
+        "# mapped output position (declick pass or the silence cut).",
+        f"# {len(rows)} of {n_total} entries (cap {_M4D_AUDIT_MAX});"
+        " seek to audit_mm:ss in the wav and answer with #idx.",
+        f"{'#audit_mm:ss':>12} {'idx':>4} {'t_sec':>8} {'class':>6}"
+        f" {'repaired':>8} {'score_db':>8}  note",
+    ]
+    cursor = 0.0
+    for i, r in enumerate(rows, 1):
+        beep_at = cursor
+        a = ctx(xm, r["t_src"], sr)
+        b = (
+            ctx(ym, r["t_out"], sro)
+            if r["t_out"] is not None
+            else np.zeros(2 * half)
+        )
+        peak = max(float(np.abs(a).max()), float(np.abs(b).max()), 1e-9)
+        g = 10.0 ** (-6.0 / 20.0) / peak
+        parts = [beep, gap_beep, a * g, gap_ab, b * g, gap_next]
+        audio += parts
+        cursor += sum(len(p) for p in parts) / sr
+        m, s = divmod(beep_at, 60.0)
+        txt.append(
+            f"{int(m):02d}:{int(s):02d}      {i:>4} {r['t_src']:>8.3f}"
+            f" {r['cls']:>6} {'yes' if r['repaired'] else 'no':>8}"
+            f" {r['score']:>8.1f}  {r['note']}"
+        )
+    out_wav = np.concatenate(audio).astype(np.float32)
+    base = f"click_audit_numbered_{stem.replace(' ', '_')}"
+    sf.write(str(REVIEW / f"{base}.wav"), out_wav, sr)
+    (REVIEW / f"{base}.txt").write_text(
+        "\n".join(txt) + "\n", encoding="utf-8"
+    )
+    n_rep = sum(1 for r in rows if r["repaired"])
+    print(
+        f"  audit: {len(rows)}/{n_total} entries "
+        f"({n_rep} repaired, {len(rows) - n_rep} remaining),"
+        f" {len(out_wav) / sr:.1f}s -> {base}.wav"
+    )
+
+
+def _m4d(rec: Path, device: str) -> None:
+    """Per recording: new-pipeline wav, old-pipeline wav, numbered click
+    audit (wav + txt)."""
+    with tempfile.TemporaryDirectory(prefix="m4d_review_") as td:
+        tmp = Path(td)
+        p = probe(rec)
+        orig = tmp / f"{rec.stem.replace(' ', '_')}_orig.wav"
+        decode_to_wav(rec, orig, p.audio[0].index)
+
+        print(f"processing {rec.name} (old-order pipeline, HEAD code)…")
+        old_out = _m4d_old_pipeline(rec, tmp, device)
+        shutil.copy2(old_out, REVIEW / f"m4d_{rec.stem}_podcast_old_order.wav")
+
+        print(f"processing {rec.name} (new M4d pipeline)…")
+        run = _m4d_run(rec, tmp, _preset_ops("podcast"), device, "m4d")
+        shutil.copy2(run["out"], REVIEW / f"m4d_{rec.stem}_podcast.wav")
+        timeline = run["job_root"] / "output" / "timeline.json"
+
+        print("building numbered click audit…")
+        _m4d_audit(rec.stem, orig, run["out"], timeline)
+
+        # per-stage summary incl. the hidden declick_final stage
+        for name, prog in run["stages"].items():
+            detail = (
+                f" {prog.message_code} {prog.message_params}"
+                if prog.message_code else ""
+            )
+            print(
+                f"    {name:<32} {prog.stage_seconds:6.1f}s"
+                f"  {prog.device}{detail}"
+            )
+        x, _ = load_mono(orig)
+        y, _ = load_mono(run["out"])
+        print(
+            f"  LUFS {integrated_lufs(run['out'])},"
+            f" TP {true_peak_db(run['out']):+.2f},"
+            f" dur {p.duration_s:.2f} -> {probe(run['out']).duration_s:.2f}s"
+        )
+
+
 # ---- M5: silence review files (unchanged, behind --m5) --------------------------
 
 
@@ -705,6 +999,10 @@ def main() -> int:
     print(f"job device: {device}")
     if "--m8" in sys.argv[1:]:
         _m8(recordings, device)
+        return 0
+    if "--m4d" in sys.argv[1:]:
+        for rec in recordings:
+            _m4d(rec, device)
         return 0
     rows, rows_b, rows7 = [], [], []
     with tempfile.TemporaryDirectory(prefix="m6_review_") as td:

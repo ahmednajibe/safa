@@ -28,6 +28,7 @@ MESSAGES: dict[str, str] = {
         "Reduced room echo: cut resonances at {freqs} Hz"
     ),
     "breaths_reduced": "Made {count} breaths quieter by about {db} dB",
+    "clicks_removed": "Removed {count} mouth clicks",
     "separated": "Separated voice and music ({output})",
     "subtitles_written": "Wrote {count} subtitle lines ({language})",
     "language_detected": "Detected language: {language}",

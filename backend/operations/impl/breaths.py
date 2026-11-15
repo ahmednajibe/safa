@@ -128,10 +128,40 @@ def run(
 
     mono = _mono_of(in_wav, sr)
     spans: list[tuple[float, float]] = []
+    detail: dict = {}
     if len(mono):
         spans, detail = detect_breaths(
             mono, sr, sensitivity=sensitivity, return_detail=True
         )
+
+    # M4d Task 1: hand the detected spans (in THIS stage's input time)
+    # to the silence stage — re-detecting after ducking misses breaths.
+    # ``breath_spans_dur`` lets silence spot a stale list (a stage that
+    # changed the file length in between invalidates the coordinates).
+    ctx.analysis["breath_spans"] = [
+        (float(s), float(e)) for s, e in spans
+    ]
+    ctx.analysis["breath_spans_dur"] = float(ctx.duration_s)
+    if detail:
+        p = detail.get("speech_prob")
+        # Same "audible noise bed" semantics as vad_stats.vad_level_stats:
+        # P75 of non-speech frames, not P10 — digitally-muted pauses
+        # would otherwise report a -90 dB floor no gate can work with.
+        floor = float(detail["floor_dbfs"])
+        if p is not None:
+            rms = detail["rms_db"]
+            quiet = rms[np.asarray(p) < 0.3]
+            if quiet.size >= 30:
+                floor = float(np.percentile(quiet, 75))
+        ctx.analysis.setdefault("noise_floor_dbfs", floor)
+        if p is not None:
+            rms = detail["rms_db"]
+            voiced = rms[np.asarray(p) >= 0.5]
+            base = voiced if voiced.size >= 30 else rms
+            ctx.analysis.setdefault(
+                "speech_dbfs", float(np.percentile(base, 85))
+            )
+
     ctx.report(0.5, None)
     if ctx.should_cancel():
         from backend.pipeline.types import CancelledError

@@ -145,6 +145,19 @@ def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
             out_path=tmp,
         )
         os.replace(tmp, out)
+
+    # M4d: re-measure the true peak after the corrective pass and assert
+    # the ceiling actually held (+0.1 dB tolerance) — loudnorm's TP cap
+    # and the limiter should guarantee it, so a violation means the
+    # output silently shipped over the promised ceiling.
+    from backend.media.loudness import true_peak_db
+
+    tp_out = true_peak_db(out)
+    if tp_out is not None and tp_out > tp + 0.1:
+        raise RuntimeError(
+            f"loudness output true peak {tp_out:.2f} dBTP exceeds"
+            f" {tp + 0.1:.2f} dBTP"
+        )
     ctx.report(1.0, None)
     return OpResult(
         path=out,

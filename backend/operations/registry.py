@@ -44,6 +44,10 @@ class OpSpec:
     # a selection whose chosen model is missing (model_missing{model_id}).
     model_options: dict[str, dict[str, str]] = field(default_factory=dict)
     planned: bool = False
+    # M4d: pipeline-internal stages auto-inserted by resolve() — they run
+    # and report like any stage but are never listed by /api/operations
+    # or rendered as op cards.
+    hidden: bool = False
 
 
 def _opts(*pairs: tuple[Any, str]) -> list[dict]:
@@ -200,6 +204,14 @@ OPERATIONS: dict[str, OpSpec] = {
             ParamSpec("deess", "Soften \"s\" sounds", "bool", True),
         ],
     ),
+    "declick_final": OpSpec(
+        id="declick_final", order=52,
+        name="Remove mouth clicks (final pass)",
+        description="One more gentle pass that catches clicks the"
+                    " earlier steps uncovered.",
+        engine="numpy/scipy", device="cpu",
+        hidden=True,
+    ),
     "enhance_ai": OpSpec(
         id="enhance_ai", order=55,
         name="Restore damaged voice",
@@ -207,7 +219,7 @@ OPERATIONS: dict[str, OpSpec] = {
         engine="resemble-enhance", device="gpu-optional", planned=True,
     ),
     "silence": OpSpec(
-        id="silence", order=60,
+        id="silence", order=48,
         name="Cut silence",
         description="Removes the silent parts so only the speech is left"
                     " (or just shortens long pauses).",
