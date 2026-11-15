@@ -87,6 +87,8 @@ MESSAGES: dict[str, str] = {
     "in_use": "A running job is using this file.",
     "processing": "Still preparing this file.",
     "client_disconnected": "The upload was interrupted.",
+    "bad_host": "This app only answers on this computer.",
+    "bad_origin": "This request didn't come from this app.",
     # availability / conflicts (SPEC §2)
     "karaoke_speech_op": "Off while Karaoke is on",
     "planned": "Coming later",

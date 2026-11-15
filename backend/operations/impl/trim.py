@@ -49,7 +49,9 @@ def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
     parent = ctx.timeline or Timeline.identity(dur)
     new_tl = parent.keep([(start, end)])
     if ctx.fps:
-        new_tl = new_tl.snap(ctx.fps)
+        # R1 B7: snapped edges must not grow past the parent coverage —
+        # the video renderer uses this map verbatim.
+        new_tl = new_tl.snap(ctx.fps).keep_src(parent.kept_spans_src())
     if not new_tl.segments:
         raise ValueError(_MSG)
 

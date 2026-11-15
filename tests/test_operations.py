@@ -1,4 +1,6 @@
 """Task 3 tests: operation registry, presets, conflict rules, /api/operations."""
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -348,3 +350,139 @@ def test_resolve_endpoint_422(tmp_path):
     ):
         r = _client(tmp_path).post("/api/operations/resolve", json=payload)
         assert r.status_code == 422, payload
+
+
+# ---- R1 B10: per-selected-model gating -----------------------------------------
+
+
+def test_unavailable_code_separate_per_model():
+    """R1 B10: the separate card is unavailable only when NEITHER model
+    is downloaded — one present model keeps it selectable."""
+    from backend.operations.registry import OPERATIONS
+    from backend.operations.rules import unavailable_code
+
+    spec = OPERATIONS["separate"]
+    mods = {"audio_separator": True}
+    for models, expected in (
+        ({"htdemucs": True, "kim_vocal_2": True}, None),
+        ({"htdemucs": True, "kim_vocal_2": False}, None),
+        ({"htdemucs": False, "kim_vocal_2": True}, None),
+        ({"htdemucs": False, "kim_vocal_2": False}, "model_missing"),
+    ):
+        assert unavailable_code(spec, mods, models) == expected, models
+
+
+def test_unavailable_code_subtitles_per_model():
+    """R1 B10: subtitles stay selectable while *either* whisper model is
+    present; both missing → model_missing."""
+    from backend.operations.registry import OPERATIONS
+    from backend.operations.rules import unavailable_code
+
+    spec = OPERATIONS["subtitles"]
+    mods = {"faster_whisper": True}
+    for models, expected in (
+        ({"whisper_small": True, "whisper_turbo": False}, None),
+        ({"whisper_small": False, "whisper_turbo": True}, None),
+        ({"whisper_small": False, "whisper_turbo": False},
+         "model_missing"),
+    ):
+        assert unavailable_code(spec, mods, models) == expected, models
+
+
+def test_resolve_rejects_missing_selected_model():
+    """R1 B10: choosing a model that isn't downloaded raises
+    ModelMissingError naming the model id."""
+    from backend.operations.rules import ModelMissingError, resolve
+
+    avail = _all_available()
+    impl = _all_implemented()
+    sep = {"htdemucs": True, "kim_vocal_2": False}
+    with pytest.raises(ModelMissingError) as ei:
+        resolve({"separate": {"model": "kim_vocal_2"}},
+                avail, impl, models=sep)
+    assert ei.value.params["model_id"] == "kim_vocal_2"
+    eff = resolve({"separate": {"model": "htdemucs"}},
+                  avail, impl, models=sep)
+    assert [o for o, _ in eff.ops] == ["separate"]
+
+    wh = {"whisper_small": True, "whisper_turbo": False}
+    with pytest.raises(ModelMissingError) as ei:
+        resolve({"subtitles": {"model": "accurate"}},
+                avail, impl, models=wh)
+    assert ei.value.params["model_id"] == "whisper_turbo"
+    eff = resolve({"subtitles": {"model": "fast"}},
+                  avail, impl, models=wh)
+    assert [o for o, _ in eff.ops] == ["subtitles"]
+
+
+def test_resolve_no_models_arg_skips_model_gate():
+    """models=None keeps the old behaviour (estimates never fail)."""
+    from backend.operations.rules import resolve
+
+    eff = resolve(
+        {"separate": {"model": "kim_vocal_2"}},
+        _all_available(), _all_implemented(),
+    )
+    assert [o for o, _ in eff.ops] == ["separate"]
+
+
+def test_job_and_resolve_api_422_model_missing(tmp_path, monkeypatch):
+    """A missing *selected* model is a 422 model_missing{model_id} —
+    the job never silently switches engines."""
+    from dataclasses import replace
+    from urllib.parse import quote
+
+    from backend.core.capabilities import detect_capabilities
+    import backend.api.jobs as jobs_api
+    import backend.api.operations as ops_api
+
+    caps = detect_capabilities()
+    fake = replace(
+        caps,
+        modules={
+            **caps.modules,
+            "audio_separator": True, "faster_whisper": True,
+        },
+        models={
+            **caps.models,
+            "htdemucs": True, "kim_vocal_2": False,
+            "whisper_small": True, "whisper_turbo": False,
+        },
+    )
+    monkeypatch.setattr(jobs_api, "detect_capabilities", lambda: fake)
+    monkeypatch.setattr(ops_api, "detect_capabilities", lambda: fake)
+
+    c = _client(tmp_path)
+    clip = Path(__file__).parent / "fixtures" / "generated" / "speech.wav"
+    r = c.post(
+        "/api/media",
+        content=clip.read_bytes(),
+        headers={
+            "X-Filename": quote(clip.name),
+            "Content-Type": "application/octet-stream",
+        },
+    )
+    assert r.status_code == 201, r.text
+    mid = r.json()["media_id"]
+
+    r = c.post("/api/jobs", json={
+        "media_id": mid, "device": "cpu",
+        "ops": {"separate": {"model": "kim_vocal_2"}},
+    })
+    assert r.status_code == 422, r.text
+    body = r.json()
+    assert body["code"] == "model_missing"
+    assert body["params"]["model_id"] == "kim_vocal_2"
+
+    r = c.post("/api/jobs", json={
+        "media_id": mid, "device": "cpu",
+        "ops": {"subtitles": {"model": "accurate"}},
+    })
+    assert r.status_code == 422
+    assert r.json()["params"]["model_id"] == "whisper_turbo"
+
+    r = c.post("/api/operations/resolve", json={
+        "ops": {"separate": {"model": "kim_vocal_2"}},
+    })
+    assert r.status_code == 422
+    assert r.json()["code"] == "model_missing"

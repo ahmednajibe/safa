@@ -7,7 +7,10 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
+import numpy as np
+import psutil
 import pytest
+import soundfile as sf
 from fastapi.testclient import TestClient
 
 import backend.api.jobs as jobs_api
@@ -230,6 +233,51 @@ def test_cancel_queued_job(tmp_path):
     assert c.post("/api/jobs/nope/cancel").status_code == 404
 
 
+def test_cancel_running_job_kills_worker(tmp_path):
+    """R1 weak test #10 + B2: the cancel must exercise the RUNNING path —
+    wait for ``running`` + a live worker pid, then /cancel. The API
+    answers without waiting on the kill; the worker process dies and the
+    job ends up ``cancelled``."""
+    c = _client(tmp_path)
+    src = tmp_path / "long_tone.wav"
+    t = np.arange(60 * 48000) / 48000
+    sf.write(
+        str(src), (0.3 * np.sin(2 * np.pi * 220 * t)).astype("float32"),
+        48000, subtype="FLOAT",
+    )
+    with c:  # lifespan → real supervisor + worker subprocess
+        mid = _upload(c, src)
+        jid = _post_job(c, mid).json()["id"]
+        store = c.app.state.store
+        pid = None
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            for j_id, p in store.running_pids():
+                if j_id == jid:
+                    pid = p
+            if pid is not None:
+                break
+            assert store.get(jid).state != "completed", (
+                "job finished before cancel could land"
+            )
+            time.sleep(0.05)
+        assert pid is not None, (
+            "job never reached 'running' with a live worker pid"
+        )
+        assert psutil.pid_exists(pid)
+        r = c.post(f"/api/jobs/{jid}/cancel")
+        assert r.status_code == 202
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if store.get(jid).state == "cancelled":
+                break
+            time.sleep(0.1)
+        assert store.get(jid).state == "cancelled"
+        assert not psutil.pid_exists(pid), (
+            "worker process survived the cancel"
+        )
+
+
 def test_retry_only_from_terminal(tmp_path):
     c = _client(tmp_path)
     mid = _upload(c, ARABIC_WAV)
@@ -328,6 +376,24 @@ def test_sse_first_event_is_full_state(tmp_path):
 def test_sse_unknown_job_404(tmp_path):
     c = _client(tmp_path)
     assert c.get("/api/jobs/nope/events").status_code == 404
+
+
+def test_sse_open_close_60_streams_no_leak(tmp_path):
+    """R1 B4: 60 open/close cycles on a live job's SSE stream must not
+    pin the server — a normal GET still answers < 1 s. The old sync
+    generator held a threadpool thread per open stream until the job
+    ended (≈40 refreshes exhausted the pool)."""
+    c = _client(tmp_path)
+    mid = _upload(c, ARABIC_WAV)
+    jid = _post_job(c, mid).json()["id"]  # stays queued (no lifespan)
+    for _ in range(60):
+        with c.stream("GET", f"/api/jobs/{jid}/events") as r:
+            first = next(r.iter_lines())
+            assert first == "event: state"
+    t0 = time.monotonic()
+    resp = c.get("/api/health")
+    assert resp.status_code == 200
+    assert time.monotonic() - t0 < 1.0
 
 
 # ---- full flow on a real recording ------------------------------------------------

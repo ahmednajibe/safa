@@ -186,6 +186,7 @@ def test_recording3_dereverb_metrics(tmp_path, real_dir):
         ltas_ripple_db,
         load_mono,
         srmr_proxy,
+        tail_energy_ratio,
     )
 
     src = real_dir / "Recording (3).m4a"
@@ -206,5 +207,12 @@ def test_recording3_dereverb_metrics(tmp_path, real_dir):
     srmr_in, srmr_out = srmr_proxy(x, SR), srmr_proxy(y, SR)
     assert srmr_out >= srmr_in - 0.5, (
         f"srmr {srmr_in:.2f} -> {srmr_out:.2f} dB"
+    )
+    # R1 weak test: reverb energy lives in the ring-out tail — WPE must
+    # lower the tail's share of total energy (an identity passthrough
+    # leaves it unchanged).
+    tail_in, tail_out = tail_energy_ratio(x, SR), tail_energy_ratio(y, SR)
+    assert tail_out < tail_in, (
+        f"tail energy ratio {tail_in:.3f} -> {tail_out:.3f} (no decrease)"
     )
     assert _dur(res.path) == pytest.approx(_dur(in_wav), abs=0.001)

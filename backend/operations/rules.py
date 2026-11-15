@@ -36,6 +36,18 @@ class ParamError(ValueError):
         self.params = params
 
 
+class ModelMissingError(ParamError):
+    """R1 B10: the selected model option needs a model file that isn't
+    downloaded — surfaces as ``model_missing{model_id}`` (422)."""
+
+    def __init__(self, op_name: str, param_key: str, model_id: str):
+        super().__init__(
+            f"{op_name}: model '{model_id}' isn't downloaded",
+            {"param": param_key, "model_id": model_id},
+        )
+        self.model_id = model_id
+
+
 @dataclass
 class Effective:
     ops: list[tuple[str, dict]]
@@ -115,6 +127,11 @@ def unavailable_code(
         return "module_missing"
     if any(not models.get(m, False) for m in op.requires_models):
         return "model_missing"
+    # R1 B10: per-option model gating — the card is only unavailable when
+    # *every* choice's model is missing.
+    for choice_map in op.model_options.values():
+        if not any(models.get(m, False) for m in choice_map.values()):
+            return "model_missing"
     return None
 
 
@@ -137,10 +154,23 @@ def _unavailable_entry(op: OpSpec) -> dict:
     return _disabled(code, reason)
 
 
+def _missing_selected_model(
+    spec: OpSpec, params: dict, models: dict[str, bool]
+) -> tuple[str, str] | None:
+    """R1 B10: (param_key, model_id) when the chosen option's model file
+    is missing, else None."""
+    for key, choice_map in spec.model_options.items():
+        model_id = choice_map.get(params.get(key))
+        if model_id is not None and not models.get(model_id, False):
+            return key, model_id
+    return None
+
+
 def resolve(
     selection: dict[str, dict],
     available: dict[str, bool],
     implemented: set[str] | None = None,
+    models: dict[str, bool] | None = None,
 ) -> Effective:
     """Validate + order a selection and apply conflict/availability rules.
 
@@ -150,7 +180,10 @@ def resolve(
     "Coming in a later update" instead of failing the job later.
     ``None`` reads the live ``IMPLEMENTATIONS`` table; tests pass a full set
     to exercise pure rule logic.
-    """
+
+    ``models`` enables R1 B10 per-option gating: a selection whose chosen
+    model is missing raises ``ModelMissingError`` (→ 422 model_missing).
+    ``None`` skips the check (estimates/tests)."""
     if implemented is None:
         from backend.operations.impl import IMPLEMENTATIONS
 
@@ -172,7 +205,12 @@ def resolve(
                 "not_implemented", REASON_NOT_IMPLEMENTED
             )
             continue
-        merged[op_id] = validate_params(op_id, params)
+        merged[op_id] = merged_params = validate_params(op_id, params)
+        if models is not None:
+            miss = _missing_selected_model(spec, merged_params, models)
+            if miss is not None:
+                del merged[op_id]
+                raise ModelMissingError(spec.name, *miss)
 
     # SPEC §2: karaoke (separate output=instrumental) disables speech-based ops.
     if merged.get("separate", {}).get("output") == "instrumental":

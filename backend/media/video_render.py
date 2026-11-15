@@ -67,7 +67,9 @@ def _filter_script(timeline: Timeline, stream_index: int, fps: float) -> str:
     )
     speed = _global_speed(timeline)
     if abs(speed - 1.0) > 1e-9:
-        chain += f",setpts=PTS/{_fmt(speed)},fps={_fmt(fps * speed)}"
+        # R1 B6: rescale timestamps, then resample to the *source* rate —
+        # fps*speed would emit 31.25/37.5/120 fps containers.
+        chain += f",setpts=PTS/{_fmt(speed)},fps={_fmt(fps)}"
     return chain + "[v]\n"
 
 

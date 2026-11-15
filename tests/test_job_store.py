@@ -178,6 +178,59 @@ def test_update_progress_throttled_but_stage_change_written(
     assert row["stage_pct"] == 0.99
 
 
+def test_update_progress_never_drops_important_rows(store, db_path):
+    """R1 B8: stage completion (pct 1.0), a message_code, or a
+    warning_code must land even inside the 250 ms throttle window —
+    fast ops finish within it and their summaries must reach SSE."""
+    _media(db_path)
+    j = _job(store)
+    store.mark_running(j.id, pid=1)
+    # first write lands, starts the throttle window
+    store.update_progress(
+        j.id,
+        Progress(stage="Cut silence", stage_idx=1, total_stages=3,
+                 stage_pct=0.3, overall_pct=0.4),
+    )
+    # a mid-window pct-only row is dropped (throttle still works)
+    store.update_progress(
+        j.id,
+        Progress(stage="Cut silence", stage_idx=1, total_stages=3,
+                 stage_pct=0.5, overall_pct=0.5),
+    )
+    # the closing row lands anyway: pct 1.0 + summary code
+    store.update_progress(
+        j.id,
+        Progress(stage="Cut silence", stage_idx=1, total_stages=3,
+                 stage_pct=1.0, overall_pct=0.7,
+                 message="Removed 1.0 s of silence in 2 places",
+                 message_code="silence_removed",
+                 message_params={"seconds": 1.0, "count": 2}),
+    )
+    row = connect(db_path).execute(
+        "SELECT stage_pct, message_code, message_params_json"
+        " FROM jobs WHERE id=?",
+        (j.id,),
+    ).fetchone()
+    assert row["stage_pct"] == 1.0
+    assert row["message_code"] == "silence_removed"
+    assert json.loads(row["message_params_json"]) == {
+        "seconds": 1.0, "count": 2,
+    }
+
+    # a warning row inside the window lands too
+    store.update_progress(
+        j.id,
+        Progress(stage="Cut silence", stage_idx=1, total_stages=3,
+                 stage_pct=0.9, overall_pct=0.9,
+                 warning_code="gpu_fallback",
+                 warning_params={"op_id": "silence"}),
+    )
+    row = connect(db_path).execute(
+        "SELECT stage_pct FROM jobs WHERE id=?", (j.id,)
+    ).fetchone()
+    assert row["stage_pct"] == 0.9
+
+
 # ---- cancel / finish ----------------------------------------------------------
 
 
@@ -255,6 +308,55 @@ def test_mark_interrupted_on_startup(store, db_path):
     assert store.get(done.id).state == "completed"
     # second call is a no-op
     assert store.mark_interrupted_on_startup() == 0
+
+
+# ---- terminal-state guard (R1 D: the mutation-probe survivor) -----------------
+
+
+@pytest.mark.parametrize(
+    "terminal", ["completed", "cancelled", "interrupted"]
+)
+def test_finish_after_terminal_is_noop(store, db_path, terminal):
+    """A late write must not resurrect or overwrite a terminal job —
+    finish() after completed/cancelled/interrupted is a no-op."""
+    _media(db_path)
+    j = _job(store)
+    store.mark_running(j.id, pid=1)
+    store.finish(j.id, terminal, message="first", error="first-err")
+    first = store.get(j.id)
+    # an orphan/late writer tries every plausible transition
+    store.finish(j.id, "completed", message="late-done")
+    store.finish(j.id, "failed", error="late-err")
+    store.finish(j.id, "cancelled", message="late-cancel")
+    got = store.get(j.id)
+    assert got.state == terminal
+    assert got.message == first.message
+    assert got.error == first.error
+    assert got.finished_at == first.finished_at
+
+
+def test_orphan_worker_completed_cannot_overwrite_interrupted(
+    store, db_path
+):
+    """The killed worker's late ``completed`` lands after the server
+    already marked the job interrupted — the terminal row must win."""
+    _media(db_path)
+    j = _job(store)
+    store.mark_running(j.id, pid=1)
+    store.finish(j.id, "interrupted", message="server closed")
+    store.finish(j.id, "completed", message="Done")
+    assert store.get(j.id).state == "interrupted"
+
+
+def test_failed_can_still_be_cancelled(store, db_path):
+    """The one allowed transition: a worker that 'failed' because its
+    ffmpeg was killed is marked cancelled, not left failed."""
+    _media(db_path)
+    j = _job(store)
+    store.mark_running(j.id, pid=1)
+    store.finish(j.id, "failed", error="ffmpeg died")
+    store.finish(j.id, "cancelled", message="Cancelled")
+    assert store.get(j.id).state == "cancelled"
 
 
 # ---- migration on an M2-era database --------------------------------------------

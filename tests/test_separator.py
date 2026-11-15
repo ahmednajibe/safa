@@ -7,6 +7,7 @@ karaoke metrics, the 48→44.1→48 kHz round-trip, VRAM/RAM bounds).
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import threading
 import time
@@ -206,6 +207,14 @@ def test_new_separator_constraints_demucs(monkeypatch):
     assert captured["use_soundfile"] is True
     assert captured["output_format"] == "WAV"
     assert captured["demucs_params"]["segment_size"] == 7
+    # R1 C3 weak test: determinism pins must be asserted here —
+    # upstream defaults to shifts=2 (per-window random shift) and cuDNN
+    # autotuning is non-deterministic across processes.
+    assert captured["demucs_params"]["shifts"] == 0
+    import torch
+
+    assert torch.backends.cudnn.deterministic is True
+    assert torch.backends.cudnn.benchmark is False
     assert captured["sample_rate"] == 44100
 
 
@@ -266,6 +275,28 @@ def test_cpu_construction_patches_cuda_available(monkeypatch):
     monkeypatch.setattr(asep, "Separator", Dummy)
     separator._new_separator("htdemucs", "cpu", {"voice"}, 7)
     assert seen["cuda"] is False
+
+
+def test_demucs_determinism_pinned(monkeypatch):
+    """R1 C3: demucs must run with ``shifts=0`` and deterministic cuDNN —
+    upstream defaults to ``shifts=2`` (a ``random.randint`` shift per
+    window) and cuDNN autotuning varies across processes (LF rumble)."""
+    import audio_separator.separator as asep
+
+    captured = {}
+
+    class Dummy:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+    monkeypatch.setattr(asep, "Separator", Dummy)
+    separator._new_separator("htdemucs", "gpu", {"voice"}, 7)
+    assert captured["demucs_params"]["shifts"] == 0
+    assert captured["demucs_params"]["segments_enabled"] is True
+    import torch
+
+    assert torch.backends.cudnn.deterministic is True
+    assert torch.backends.cudnn.benchmark is False
 
 
 # ---------- OOM ladder (Review Focus 4) --------------------------------------
@@ -364,6 +395,30 @@ def test_silent_window_skipped(tmp_path, monkeypatch):
     mid = slice(int(5.0 * SR), int(9.0 * SR))
     assert np.abs(v[mid]).max() < 1e-6
     assert np.abs(m[mid]).max() < 1e-6
+
+
+def test_antiphase_window_skipped(tmp_path, monkeypatch):
+    """R1 C3: ``L ≈ −R`` stereo windows must never reach the engine —
+    demucs normalises by ``ref.std()`` of the ~0 mono fold-down and the
+    divide explodes (NaN/rumble). The window passes through as voice,
+    music stays silent."""
+    calls: list = []
+    engines = _patch_engine(monkeypatch, calls)
+    t = np.arange(int(6 * SR)) / SR
+    left = 0.3 * np.sin(2 * np.pi * 220 * t)
+    x = np.stack([left, -left], axis=1).astype(np.float32)
+    _write(tmp_path / "in.wav", x)
+    process_file(
+        tmp_path / "in.wav", tmp_path / "v.wav", tmp_path / "m.wav",
+        model="htdemucs", device="cpu", work_dir=tmp_path / "w",
+        window_s=2.0, overlap_s=0.5,
+    )
+    assert engines[0].windows == 0, (
+        "out-of-phase window reached the demucs engine"
+    )
+    v, m = _load(tmp_path / "v.wav"), _load(tmp_path / "m.wav")
+    assert np.abs(v - x).max() < 1e-4
+    assert np.abs(m).max() < 1e-4
 
 
 def test_gain_continuity_across_windows(tmp_path, monkeypatch):
@@ -609,6 +664,60 @@ def test_real_recording_voice_kept(real_dir, tmp_path):
     x, m = _load(in_wav), _load(tmp_path / "m.wav")
     assert _rms_db(m) < _rms_db(x) - 6, (
         f"music stem only {_rms_db(x) - _rms_db(m):.1f} dB below input"
+    )
+
+
+# ---------- R1 C3: cross-process determinism (slow) ---------------------------
+
+
+_SEP_CHILD = (
+    "import sys;from pathlib import Path;"
+    "from backend.media.separator import process_file;"
+    "process_file(Path(sys.argv[1]), Path(sys.argv[2]), None,"
+    " 'htdemucs', sys.argv[3], Path(sys.argv[4]))"
+)
+
+
+@pytest.mark.slow
+def test_demucs_cross_process_deterministic(tmp_path):
+    """3 separate processes on the same input → voice stems identical
+    within 1e-4 (``shifts=0`` + pinned cuDNN), and the stem must not gain
+    energy in the 20–60 Hz band (the intermittent LF-rumble signature)."""
+    from backend.core.capabilities import _model_present
+
+    if not _model_present("htdemucs"):
+        pytest.skip("htdemucs model not cached")
+    x = _load(SEP_MIX)[: 4 * SR]
+    src = tmp_path / "in.wav"
+    _write(src, x)
+    dev = "gpu" if GPU else "cpu"
+    outs = []
+    for i in range(3):
+        out = tmp_path / f"v{i}.wav"
+        subprocess.run(
+            [
+                sys.executable, "-c", _SEP_CHILD,
+                str(src), str(out), dev, str(tmp_path / f"w{i}"),
+            ],
+            cwd=str(ROOT), check=True, timeout=900,
+        )
+        outs.append(out)
+    ref = _load(outs[0])
+    for other in outs[1:]:
+        y = _load(other)
+        assert y.shape == ref.shape
+        drift = float(np.abs(y - ref).max())
+        assert drift <= 1e-4, f"cross-process drift {drift:.2e}"
+
+    def _lf_energy(sig: np.ndarray) -> float:
+        mono = sig.mean(axis=1) if sig.ndim > 1 else sig
+        spec = np.abs(np.fft.rfft(mono * np.hanning(len(mono))))
+        freqs = np.fft.rfftfreq(len(mono), 1 / SR)
+        return float(spec[(freqs >= 20) & (freqs <= 60)].sum())
+
+    stem_lf, in_lf = _lf_energy(ref), _lf_energy(x)
+    assert stem_lf <= in_lf, (
+        f"voice stem LF energy {stem_lf:.1f} > input {in_lf:.1f} (rumble)"
     )
 
 

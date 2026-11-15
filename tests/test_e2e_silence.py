@@ -163,9 +163,23 @@ def test_silence_defaults_remove_through_api(tmp_path):
         # silence really left: output well below input
         assert pv.duration_s < in_dur - 7.0
 
-        # The SSE endpoint replays the latest job row, so the op's
-        # transient "silence_removed" progress is racy to observe here;
-        # it's asserted deterministically at the runner level below.
+        # R1 B8 + weak-test: the op's coded summary must be visible in
+        # the SSE stream itself. Stage records are cumulative
+        # (stages_json rides every state event), so after the silence
+        # stage closes, "silence_removed" is deterministic — not a racy
+        # transient message_code on the job row.
+        assert any(
+            s.get("message_code") == "silence_removed"
+            for ev, p in events
+            if ev in ("state", "done")
+            for s in p.get("stages") or []
+        ), "silence_removed never reached an SSE payload"
+        fin = next(
+            s for s in final["stages"]
+            if s.get("message_code") == "silence_removed"
+        )
+        assert fin["message_params"]["seconds"] > 5.0
+        assert fin["state"] == "done"
 
 
 def test_silence_message_code_through_runner(tmp_path):

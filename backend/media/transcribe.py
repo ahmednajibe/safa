@@ -319,7 +319,20 @@ def transcribe_file(
     """
     if model not in MODEL_IDS:
         raise ValueError(f"unknown whisper model key: {model}")
-    emit = report or (lambda *a: None)
+    emit_raw = report or (lambda *a, **k: None)
+    _last = [0.0]
+
+    def emit(*args, **kwargs):
+        # R1 B12: the CPU retry starts its own 0..1 progress — clamp so
+        # the stage bar never slides backwards across the fallback.
+        if args and isinstance(args[0], (int, float)):
+            v = float(args[0])
+            if v < _last[0]:
+                args = (_last[0], *args[1:])
+            else:
+                _last[0] = v
+        emit_raw(*args, **kwargs)
+
     _cancel(should_cancel)
     info_duration = None
     try:
@@ -356,11 +369,12 @@ def transcribe_file(
             emit(
                 None,
                 *msg("gpu_fallback", op_id="subtitles"),
+                device="cpu",
             )
         try:
             res = _attempt(
                 wav, language, model, dev, duration,
-                report, should_cancel,
+                emit, should_cancel,
             )
             res.oom_fallback = fell_back
             res.fallback_kind = fallback_kind

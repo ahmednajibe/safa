@@ -144,16 +144,27 @@ def test_subtitles_estimates_have_per_model_entries():
     assert fast_cpu[0] > fast_gpu[0]
 
 
-def test_whisper_turbo_manifest_and_capability():
+def test_whisper_turbo_manifest_and_capability(tmp_path, monkeypatch):
     from backend.core.capabilities import _model_present
+    import backend.core.models_manifest as manifest
     from backend.core.models_manifest import MODELS
 
     assert "whisper_turbo" in MODELS
     assert MODELS["whisper_turbo"].source.endswith(
         "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
     )
-    # capability probes the specific HF cache folder — False or True, never raises
-    assert _model_present("whisper_turbo") in (True, False)
+    # R1 weak test: probe a controlled HF-hub layout — model.bin present
+    # → True, missing → False (was a ``in (True, False)`` tautology).
+    monkeypatch.setattr(manifest, "MODELS_DIR", tmp_path)
+    snap = (
+        tmp_path / "whisper"
+        / "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"
+        / "snapshots" / "deadbeef"
+    )
+    snap.mkdir(parents=True)
+    assert _model_present("whisper_turbo") is False
+    (snap / "model.bin").write_bytes(b"weights")
+    assert _model_present("whisper_turbo") is True
 
 
 # ---- op behaviour -------------------------------------------------------------

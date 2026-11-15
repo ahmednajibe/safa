@@ -77,6 +77,16 @@ def quiet_band_share_db(
     return float(10 * np.log10(spec[(fr >= lo) & (fr < hi)].sum() / tot))
 
 
+def tail_energy_ratio(x: np.ndarray, sr: int) -> float:
+    """RMS of the final 15 % of the file over the RMS of the whole —
+    a reverb ring-out inflates the quiet tail, so dereverb should lower
+    the ratio (R1 weak-test metric)."""
+    n = max(1, int(0.15 * len(x)))
+    tail = np.sqrt((x[-n:] ** 2).mean() + 1e-20)
+    whole = np.sqrt((x ** 2).mean() + 1e-20)
+    return float(tail / whole)
+
+
 def srmr_proxy(x: np.ndarray, sr: int) -> float:
     """SRMR proxy (try_wpe.py port): 2-8 Hz vs 16-40 Hz envelope-modulation
     energy of the 300-4000 Hz band, in dB. Reverberation smears the

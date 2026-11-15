@@ -186,28 +186,44 @@ class JobStore:
 
     # ---- lifecycle ----------------------------------------------------------
 
-    def mark_running(self, job_id: str, pid: int) -> None:
+    def mark_running(self, job_id: str, pid: int) -> bool:
+        """``True`` when the job entered running; ``False`` when the row
+        was no longer queued — i.e. a racing cancel won and the spawned
+        worker is an orphan the caller must kill (R1 B2)."""
         con = self._con()
         try:
             # Only a queued job may enter running — a job cancelled while
             # waiting must not be resurrected by a racing spawn.
-            con.execute(
+            cur = con.execute(
                 "UPDATE jobs SET state='running', worker_pid=?,"
                 " started_at=? WHERE id=? AND state='queued'",
                 (pid, _utcnow(), job_id),
             )
             con.commit()
+            return cur.rowcount > 0
         finally:
             con.close()
 
     def update_progress(self, job_id: str, p: Progress) -> None:
-        """Throttled (<= 4/s); a stage change always writes immediately."""
+        """Throttled (<= 4/s); a stage change always writes immediately,
+        and so does any row that carries something the UI can't
+        reconstruct — stage completion, a message, or a warning
+        (R1 B8: fast ops finish inside the throttle window)."""
+        important = (
+            (p.stage_pct is not None and p.stage_pct >= 1.0)
+            or p.message_code is not None
+            or p.warning_code is not None
+        )
         now = time.monotonic()
         with self._lock:
             last_ts, last_stage = self._last_progress.get(
                 job_id, (0.0, None)
             )
-            if p.stage == last_stage and now - last_ts < _THROTTLE_S:
+            if (
+                not important
+                and p.stage == last_stage
+                and now - last_ts < _THROTTLE_S
+            ):
                 return
             self._last_progress[job_id] = (now, p.stage)
         con = self._con()
@@ -383,6 +399,19 @@ class JobStore:
                 "SELECT cancel_requested FROM jobs WHERE id=?", (job_id,)
             ).fetchone()
             return bool(row and row["cancel_requested"])
+        finally:
+            con.close()
+
+    def running_pids(self) -> list[tuple[str, int]]:
+        """``(job_id, worker_pid)`` for rows still 'running' — the
+        startup reaper uses it to kill orphan workers (R1 B3)."""
+        con = self._con()
+        try:
+            rows = con.execute(
+                "SELECT id, worker_pid FROM jobs"
+                " WHERE state='running' AND worker_pid IS NOT NULL"
+            ).fetchall()
+            return [(r["id"], int(r["worker_pid"])) for r in rows]
         finally:
             con.close()
 

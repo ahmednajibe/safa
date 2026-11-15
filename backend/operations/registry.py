@@ -39,6 +39,10 @@ class OpSpec:
     changes_timeline: bool = False
     requires_modules: list[str] = field(default_factory=list)
     requires_models: list[str] = field(default_factory=list)
+    # R1 B10: param option → required model id. The op card stays
+    # selectable while *any* option's model is present; resolve() rejects
+    # a selection whose chosen model is missing (model_missing{model_id}).
+    model_options: dict[str, dict[str, str]] = field(default_factory=dict)
     planned: bool = False
 
 
@@ -99,7 +103,9 @@ OPERATIONS: dict[str, OpSpec] = {
         description="Keep the voice, keep the music, or export both.",
         engine="audio-separator", device="gpu-optional",
         requires_modules=["audio_separator"],
-        requires_models=["htdemucs", "kim_vocal_2"],
+        model_options={"model": {
+            "htdemucs": "htdemucs", "kim_vocal_2": "kim_vocal_2",
+        }},
         params=[
             ParamSpec("output", "Keep", "select", "vocals", options=_opts(
                 ("vocals", "Keep voice"),
@@ -257,7 +263,10 @@ OPERATIONS: dict[str, OpSpec] = {
         name="Create subtitles",
         description="Writes timed captions (SRT/VTT) from the final audio.",
         engine="faster-whisper", device="gpu-optional",
-        requires_modules=["faster_whisper"], requires_models=["whisper_small"],
+        requires_modules=["faster_whisper"],
+        model_options={"model": {
+            "fast": "whisper_small", "accurate": "whisper_turbo",
+        }},
         params=[
             ParamSpec("language", "Language", "select", "auto", options=_opts(
                 ("auto", "Auto-detect"), ("en", "English"), ("ar", "Arabic"),

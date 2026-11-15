@@ -7,7 +7,9 @@ reconnect always sees the full current state first.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -17,6 +19,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from backend.api.errors import err
 from backend.core.capabilities import detect_capabilities
@@ -24,7 +27,9 @@ from backend.core.messages import MESSAGES as _MSG
 from backend.db import connect
 from backend.jobs.models import TERMINAL, Job
 from backend.media.encode import AUDIO_FORMATS
-from backend.operations.rules import ParamError, resolve, unavailable_code
+from backend.operations.rules import (
+    ModelMissingError, ParamError, resolve, unavailable_code,
+)
 from backend.operations.registry import OPERATIONS
 from backend.pipeline.device import gpu_usable
 
@@ -32,6 +37,13 @@ router = APIRouter()
 
 _POLL_S = 0.25
 _HEARTBEAT_S = 15.0
+
+_ID_RE = re.compile(r"[0-9a-f]{32}")
+
+
+def _bad_id(job_id: str) -> bool:
+    """R1 A3: only lowercase hex ids may reach the store/filesystem."""
+    return _ID_RE.fullmatch(job_id) is None
 
 
 def _store(request: Request):
@@ -92,6 +104,8 @@ def create_job(request: Request, body: JobRequest):
     settings = request.app.state.settings
     store = _store(request)
 
+    if _bad_id(body.media_id):
+        return err(404, "media_not_found", _MSG["media_not_found"])
     row = _media_row(settings.db_path, body.media_id)
     if row is None:
         return err(404, "media_not_found", _MSG["media_not_found"])
@@ -113,7 +127,13 @@ def create_job(request: Request, body: JobRequest):
     except (ValueError, TypeError, KeyError) as exc:
         return err(422, "bad_request", str(exc))
     try:
-        eff = resolve(selection, _availability())
+        eff = resolve(selection, _availability(), models=caps.models)
+    except ModelMissingError as exc:
+        # R1 B10: the chosen model isn't downloaded — name it.
+        return err(
+            422, "model_missing", _MSG["model_missing"],
+            params=exc.params,
+        )
     except ParamError as exc:
         return err(422, "bad_param", str(exc), params=exc.params)
     except ValueError as exc:
@@ -199,6 +219,8 @@ def list_jobs(request: Request):
 @router.get("/api/jobs/{job_id}")
 def get_job(request: Request, job_id: str):
     store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
     job = store.get(job_id)
     if job is None:
         return err(404, "job_not_found", _MSG["job_not_found"])
@@ -211,33 +233,48 @@ def get_job(request: Request, job_id: str):
 
 
 @router.get("/api/jobs/{job_id}/events")
-def job_events(request: Request, job_id: str):
+async def job_events(request: Request, job_id: str):
     store = _store(request)
-    if store.get(job_id) is None:
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    if await run_in_threadpool(store.get, job_id) is None:
         return err(404, "job_not_found", _MSG["job_not_found"])
 
-    def stream():
+    async def stream():
+        # R1 B4: an async generator — the poll loop sleeps on the event
+        # loop, DB hits ride the threadpool, and a disconnected client is
+        # detected on the next pass instead of a thread leaking forever.
         last_payload = None
         last_ping = time.monotonic()
         while True:
-            job = store.get(job_id)
+            if await request.is_disconnected():
+                return
+            job = await run_in_threadpool(store.get, job_id)
             if job is None:
                 yield "event: done\ndata: {}\n\n"
                 return
-            payload = json.dumps(
-                _job_payload(store, job), ensure_ascii=False
-            )
-            if payload != last_payload:
-                yield f"event: state\ndata: {payload}\n\n"
-                last_payload = payload
+            payload = _job_payload(store, job)
+            # files ride every state event so a reconnect sees them (M9).
+            payload["files"] = [
+                {
+                    "name": f["name"],
+                    "kind": f["kind"],
+                    "size_bytes": f["size_bytes"],
+                }
+                for f in await run_in_threadpool(store.files, job_id)
+            ]
+            text = json.dumps(payload, ensure_ascii=False)
+            if text != last_payload:
+                yield f"event: state\ndata: {text}\n\n"
+                last_payload = text
             if job.state in TERMINAL:
-                yield f"event: done\ndata: {payload}\n\n"
+                yield f"event: done\ndata: {text}\n\n"
                 return
             now = time.monotonic()
             if now - last_ping >= _HEARTBEAT_S:
                 yield ": ping\n\n"
                 last_ping = now
-            time.sleep(_POLL_S)
+            await asyncio.sleep(_POLL_S)
 
     return StreamingResponse(
         stream(),
@@ -249,6 +286,8 @@ def job_events(request: Request, job_id: str):
 @router.post("/api/jobs/{job_id}/cancel", status_code=202)
 def cancel_job(request: Request, job_id: str):
     store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
     job = store.get(job_id)
     if job is None:
         return err(404, "job_not_found", _MSG["job_not_found"])
@@ -262,6 +301,8 @@ def cancel_job(request: Request, job_id: str):
 def retry_job(request: Request, job_id: str):
     settings = request.app.state.settings
     store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
     job = store.get(job_id)
     if job is None:
         return err(404, "job_not_found", _MSG["job_not_found"])
@@ -287,6 +328,8 @@ def retry_job(request: Request, job_id: str):
 def delete_job(request: Request, job_id: str):
     settings = request.app.state.settings
     store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
     job = store.get(job_id)
     if job is None:
         return err(404, "job_not_found", _MSG["job_not_found"])
@@ -307,6 +350,8 @@ def job_timeline(request: Request, job_id: str):
     pipeline run.
     """
     store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
     if store.get(job_id) is None:
         return err(404, "job_not_found", _MSG["job_not_found"])
     path = (
@@ -324,6 +369,8 @@ def job_timeline(request: Request, job_id: str):
 @router.get("/api/jobs/{job_id}/files/{name}")
 def download_file(request: Request, job_id: str, name: str):
     store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
     if store.get(job_id) is None:
         return err(404, "job_not_found", _MSG["job_not_found"])
     match = next(

@@ -138,6 +138,50 @@ def test_snap_reindexes_output():
     assert segs[1].out_start == pytest.approx(segs[0].out_end)
 
 
+def test_keep_src_clips_snapped_escape_into_parent_gap():
+    """R1 B7: snapping rounds a boundary *outward* into a span the
+    parent already removed (off-grid parent edge). The stored timeline
+    feeds the video renderer while ``input_intervals`` clamps audio to
+    coverage — ``keep_src`` re-clips the snapped map so both agree."""
+    # parent coverage starts at the off-grid 1.015 (removed [0, 1.015))
+    parent = Timeline(
+        10.0, (Segment(1.015, 3.0, 0.0), Segment(4.0, 8.0, 1.985))
+    )
+    child = parent.keep([(0.0, 4.0)])
+    snapped = child.snap(25.0)
+    # raw snap escapes: 1.015*25=25.375→25→1.0 < parent edge 1.015
+    assert snapped.segments[0].src_start < 1.015
+    clipped = snapped.keep_src(parent.kept_spans_src())
+    assert clipped.segments[0].src_start == pytest.approx(1.015)
+    # the rest of the map is untouched; output stays contiguous
+    assert clipped.out_duration == pytest.approx(
+        snapped.out_duration - (1.015 - snapped.segments[0].src_start)
+    )
+    for s, e in clipped.kept_spans_src():
+        for pa, pb in parent.kept_spans_src():
+            if s < pb and e > pa:
+                assert s >= pa - EPS and e <= pb + EPS
+    # and now input_intervals needs no clamping — audio renders exactly
+    # what the video timeline shows
+    from backend.media.cutter import input_intervals
+
+    render = input_intervals(parent, clipped)
+    expected = [
+        (parent.src_to_out(seg.src_start), parent.src_to_out(seg.src_end))
+        for seg in clipped.segments
+    ]
+    for (ra, rb), (ea, eb) in zip(render, expected):
+        assert ra == pytest.approx(ea)
+        assert rb == pytest.approx(eb)
+
+
+def test_keep_src_noop_inside_coverage():
+    tl = Timeline.identity(10.0).keep([(1.0, 9.0)])
+    same = tl.keep_src([(0.0, 10.0)])
+    assert same.kept_spans_src() == tl.kept_spans_src()
+    assert same.out_duration == pytest.approx(tl.out_duration)
+
+
 def test_to_dict_round_trip():
     tl = (
         Timeline.identity(10.0)

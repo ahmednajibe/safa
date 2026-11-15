@@ -13,3 +13,4 @@ tests/fixtures/generated/
 .superpowers/
 tests/fixtures/real/
 graphify-out/
+.pytest_tmp/

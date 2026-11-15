@@ -58,8 +58,19 @@ def new_id() -> str:
     return uuid.uuid4().hex
 
 
+_WIN_RESERVED = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
 def sanitize_stem(name: str) -> str:
     """Filename-safe stem for output files; keeps Arabic and spaces."""
     stem = display_name(name).rsplit(".", 1)[0]
     stem = re.sub(r'[<>:"/\\|?*]', "_", stem).rstrip(" .")
+    # Windows reserves device names up to the first dot and in every
+    # extension: "CON.wav" and "CON.x (voice).m4a" are both illegal.
+    if stem.split(".")[0].upper() in _WIN_RESERVED:
+        stem = f"_{stem}"
     return stem[:100] or "output"

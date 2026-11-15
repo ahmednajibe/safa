@@ -161,7 +161,7 @@ def test_gpu_child_failure_retries_cpu(monkeypatch):
     reports = []
     res = transcribe.transcribe_file(
         SPEECH, language="en", model="fast", device="gpu",
-        report=lambda *a: reports.append(a),
+        report=lambda *a, **k: reports.append(a),
     )
     assert built == ["gpu", "cpu"]
     assert res.device == "cpu"
@@ -173,6 +173,40 @@ def test_gpu_child_failure_retries_cpu(monkeypatch):
     assert "gpu_fallback" in codes
     fb = next(a for a in reports if len(a) >= 4 and a[2] == "gpu_fallback")
     assert fb[3]["op_id"] == "subtitles"
+
+
+def test_gpu_fallback_reports_cpu_and_progress_monotonic(monkeypatch):
+    """R1 B12: the gpu_fallback row carries ``device="cpu"`` so the worker
+    can persist the real device mid-stage, and the CPU rung's own 0..1
+    progress must never slide the stage bar backwards."""
+    from backend.media import transcribe
+
+    def _flaky(wav, language, model_key, device, duration, report, cancel):
+        emit = report or (lambda *a, **k: None)
+        if device == "gpu":
+            emit(0.6)
+            raise transcribe.ChildTranscribeError("crash", "abort")
+        emit(0.05)
+        emit(0.4)
+        emit(0.9)
+        return _payload()
+
+    monkeypatch.setattr(transcribe, "_run_child", _flaky)
+    events = []
+    res = transcribe.transcribe_file(
+        SPEECH, language="en", model="fast", device="gpu",
+        report=lambda *a, **k: events.append((a, k)),
+    )
+    assert res.device == "cpu"
+    fb = next(
+        kv for a, kv in events
+        if len(a) >= 4 and a[2] == "gpu_fallback"
+    )
+    assert fb.get("device") == "cpu"
+    pcts = [
+        a[0] for a, _ in events if a and isinstance(a[0], (int, float))
+    ]
+    assert pcts and pcts == sorted(pcts)
 
 
 def test_gpu_crash_without_error_line_also_retries(monkeypatch):
@@ -342,7 +376,7 @@ def test_transcribe_reports_language_and_progress():
     events = []
     res = transcribe.transcribe_file(
         SPEECH, language="en", model="fast", device="cpu",
-        report=lambda *a: events.append(a),
+        report=lambda *a, **k: events.append(a),
     )
     assert res.language == "en"
     codes = [a[2] for a in events if len(a) >= 4 and a[2]]

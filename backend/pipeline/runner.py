@@ -86,7 +86,9 @@ def run_pipeline(
     # ``current`` threads the working wav + the composed timeline (source
     # time → current output time) through the stages; set by _decode.
     current = {"wav": src_wav, "timeline": None}
-    fps = probe.video[0].fps if want_video else None
+    # R1 C2: same 25 fps fallback the renderer uses — snapping and
+    # rendering must agree when the probe reports no frame rate.
+    fps = (probe.video[0].fps or 25.0) if want_video else None
     total = 2 + len(ops) + (1 if want_video else 0)
 
     def _emit(name: str, idx: int, dev: str) -> StageEmit:
@@ -182,7 +184,9 @@ def run_pipeline(
                 duration_s=info.frames / info.samplerate,
                 sample_rate=info.samplerate,
                 channels=info.channels,
-                report=lambda p, m=None, c=None, pr=None: emit(p, m, c, pr),
+                report=lambda p, m=None, c=None, pr=None, **kw: emit(
+                    p, m, c, pr, **kw
+                ),
                 should_cancel=should_cancel,
                 caps=caps,
                 fps=fps,

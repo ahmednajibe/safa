@@ -41,13 +41,54 @@ def test_one_second_gap_removed():
 
 
 def test_one_second_gap_shortened():
-    """shorten keeps keep_pause_s of the gap, split half/half — and of
-    the leading/trailing silence."""
+    """shorten keeps keep_pause_s of *audible* silence per gap — the
+    pads already inside the blocks count toward it (R1 B5)."""
     keep = _plan([(1.0, 2.0), (3.0, 4.0)], 6.0, action="shorten",
                  keep_pause_s=0.2)
-    # gap between padded blocks: 2.1–2.9 (0.8 s) → keep 0.1 each side;
-    # leading 0.9 s → keep last 0.2; trailing 1.9 s → keep first 0.2
-    assert keep == [(0.7, 2.2), (2.8, 4.3)]
+    # 2·pad (0.2) already covers keep_pause_s 0.2 → the padded blocks
+    # keep their edges; edges keep max(pad, keep_pause) of silence.
+    flat = [v for iv in keep for v in iv]
+    assert flat == pytest.approx([0.8, 2.1, 2.9, 4.2])
+
+
+def test_shorten_keeps_exact_pause_small_gap():
+    """0.35 s raw gap, keep_pause 0.25, pad 0.1 → exactly 0.25 s of
+    silence survives (R1 B5: total kept silence =
+    ``min(raw_gap, max(2·pad, keep_pause))``)."""
+    keep = _plan([(1.0, 2.0), (2.35, 3.0)], 5.0, action="shorten",
+                 keep_pause_s=0.25, pad_s=0.1)
+    # kept silence = (block end − speech end) + (speech start − block
+    # start) = 0.25 — the removed middle is 0.35 − 0.25 = 0.10.
+    removed = keep[1][0] - keep[0][1]
+    assert removed == pytest.approx(0.35 - 0.25)
+    kept_pause = (keep[0][1] - 2.0) + (2.35 - keep[1][0])
+    assert kept_pause == pytest.approx(0.25)
+
+
+def test_shorten_keeps_exact_pause_3s_gap():
+    """A 3.0 s gap keeps the same 0.25 s — the pause budget is per gap,
+    not proportional to gap length."""
+    keep = _plan([(1.0, 2.0), (5.0, 6.0)], 7.0, action="shorten",
+                 keep_pause_s=0.25, pad_s=0.1)
+    kept_pause = (keep[0][1] - 2.0) + (5.0 - keep[1][0])
+    assert kept_pause == pytest.approx(0.25)
+
+
+def test_shorten_gap_shorter_than_budget_kept_whole():
+    """raw_gap < max(2·pad, keep_pause) → the whole gap survives."""
+    keep = _plan([(1.0, 2.0), (2.2, 3.0)], 5.0, action="shorten",
+                 keep_pause_s=0.25, pad_s=0.1, min_silence_s=0.1)
+    # raw gap 0.2 < 0.25 → nothing removed between the blocks; the
+    # file edges keep their own max(pad, keep_pause) = 0.25 budget.
+    assert keep == [(0.75, 3.25)]
+
+
+def test_shorten_keep_pause_zero_behaves_like_remove():
+    """keep_pause_s=0 still can't un-keep the pads — kept silence per
+    gap is exactly 2·pad."""
+    keep = _plan([(1.0, 2.0), (3.0, 4.0)], 5.0, action="shorten",
+                 keep_pause_s=0.0, pad_s=0.1)
+    assert keep == [(0.9, 2.1), (2.9, 4.1)]
 
 
 def test_gap_exactly_min_silence_is_cut():
@@ -120,10 +161,11 @@ def test_breaths_ignored_in_shorten_mode():
     speech = [(1.0, 2.0), (2.5, 3.5)]
     keep = _plan(speech, 5.0, action="shorten", keep_pause_s=0.2,
                  breaths=[(2.04, 2.30)])
-    # padded blocks (0.9,2.1),(2.4,3.6); halves 0.1 → (0.9,2.2),(2.3,3.6);
-    # edges: leading keeps last 0.2 → (0.7,·), trailing keeps 0.2 → (·,3.8)
+    # R1 B5: 2·pad already covers keep_pause 0.2 → padded blocks
+    # (0.9,2.1),(2.4,3.6) keep their edges; each file edge keeps
+    # max(pad, keep_pause) = 0.2 → leading (0.8,·), trailing (·,3.7)
     flat = [v for iv in keep for v in iv]
-    assert flat == pytest.approx([0.7, 2.2, 2.3, 3.8])
+    assert flat == pytest.approx([0.8, 2.1, 2.4, 3.7])
 
 
 # ---- padding --------------------------------------------------------------------
@@ -153,9 +195,9 @@ def test_remove_drops_leading_and_trailing():
 def test_shorten_keeps_at_most_keep_pause_at_ends():
     keep = _plan([(2.0, 3.0)], 6.0, action="shorten", pad_s=0.1,
                  keep_pause_s=0.25)
-    # leading: 1.9 s of silence → keep last 0.25 → block starts 1.65
-    # trailing: 2.9 s → keep first 0.25 → block ends 3.35
-    assert keep == [(1.65, 3.35)]
+    # R1 B5: edge silence kept = max(pad, keep_pause) = 0.25 total —
+    # leading: block starts at 2.0−0.25; trailing: ends at 3.0+0.25
+    assert keep == [(1.75, 3.25)]
 
 
 def test_shorten_short_edges_kept_whole():

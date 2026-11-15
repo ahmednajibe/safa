@@ -95,28 +95,38 @@ def plan_keep(
 
     keep: list[tuple[float, float]] = []
 
-    # Leading silence.
+    # Leading silence. Shorten keeps max(pad_s, keep_pause_s) of it in
+    # total — the pad already inside the first block counts toward the
+    # budget (R1 B5).
     first_start = blocks[0][0]
     if first_start > 0 and action == "shorten":
-        keep.append((max(0.0, first_start - keep_pause_s), first_start))
+        extra = min(first_start, max(0.0, keep_pause_s - pad_s))
+        if extra > 0.0:
+            keep.append((first_start - extra, first_start))
 
     # Blocks with the pause policy applied between them. Every
     # inter-block gap is a real pause by construction (raw gap >=
-    # min_silence_s): remove drops it, shorten keeps keep_pause_s split
-    # half/half against the padded edges.
+    # min_silence_s): remove drops it, shorten keeps a pause of
+    # min(raw_gap, max(2·pad_s, keep_pause_s)) split half/half against
+    # the padded edges — the 2·pad inside the blocks counts toward the
+    # budget, so an exact keep_pause_s of *audible* silence survives.
     keep.append(blocks[0])
     for a, b in blocks[1:]:
         prev_end = keep[-1][1]
         if action == "shorten":
-            half = keep_pause_s / 2.0
+            half = max(
+                0.0, min(a - prev_end, keep_pause_s - 2.0 * pad_s)
+            ) / 2.0
             keep[-1] = (keep[-1][0], prev_end + half)
             keep.append((a - half, b))
         else:
             keep.append((a, b))
 
-    # Trailing silence.
+    # Trailing silence — same edge rule as the leading silence.
     last_end = keep[-1][1]
     if last_end < duration and action == "shorten":
-        keep.append((last_end, min(duration, last_end + keep_pause_s)))
+        extra = min(duration - last_end, max(0.0, keep_pause_s - pad_s))
+        if extra > 0.0:
+            keep.append((last_end, last_end + extra))
 
     return _merge(keep)

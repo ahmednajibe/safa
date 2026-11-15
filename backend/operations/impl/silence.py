@@ -36,6 +36,7 @@ def _breaths_near_splices(
     duration: float,
     min_silence_s: float,
     margin_s: float = 1.0,
+    should_cancel=None,
 ) -> list[tuple[float, float]]:
     """Breath spans detected in bounded windows around splice points.
 
@@ -45,7 +46,9 @@ def _breaths_near_splices(
     overlap) finds every breath that can reach a pad zone while reading
     only a few seconds of audio at a time.
     """
-    from backend.media.breaths import detect_breaths
+    from backend.media.breaths import (
+        detect_breaths, whole_file_level_stats,
+    )
 
     edges: list[tuple[float, float]] = []
     if speech[0][0] > 0:
@@ -69,17 +72,30 @@ def _breaths_near_splices(
         else:
             zones.append([za, zb])
 
+    # R1 B9: the level gate must be calibrated on the WHOLE file — inside
+    # a ±1 s window beside a > ~11 s pause the P85 lands on silence and
+    # every zone returns [].
+    level_stats = whole_file_level_stats(
+        in_wav, speech, should_cancel
+    )
+
     spans: list[list[float]] = []
     with sf.SoundFile(str(in_wav), "r") as fin:
         sr = fin.samplerate
         for za, zb in zones:
+            if should_cancel is not None and should_cancel():
+                from backend.pipeline.types import CancelledError
+
+                raise CancelledError()
             fin.seek(int(za * sr))
             blk = fin.read(
                 int((zb - za) * sr), dtype="float32", always_2d=True
             )
             if not len(blk):
                 continue
-            for s, e in detect_breaths(blk.mean(axis=1), sr):
+            for s, e in detect_breaths(
+                blk.mean(axis=1), sr, level_stats=level_stats
+            ):
                 spans.append([za + s, za + e])
     spans.sort()
     merged: list[list[float]] = []
@@ -140,7 +156,8 @@ def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
         # windows around cuttable gaps + file edges (~±1 s each), never
         # the whole file — RAM stays flat on long inputs.
         breaths = _breaths_near_splices(
-            in_wav, speech, dur, min_silence_s
+            in_wav, speech, dur, min_silence_s,
+            should_cancel=ctx.should_cancel,
         )
 
     keep = plan_keep(
@@ -159,7 +176,9 @@ def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
     parent = ctx.timeline or Timeline.identity(dur)
     new_tl = parent.keep(keep)
     if ctx.fps:
-        new_tl = new_tl.snap(ctx.fps)
+        # R1 B7: snapped edges must not grow past the parent coverage —
+        # the video renderer uses this map verbatim.
+        new_tl = new_tl.snap(ctx.fps).keep_src(parent.kept_spans_src())
     if not new_tl.segments:
         # Frame snapping erased everything — treat as "nothing to cut"
         # rather than emitting a broken file.

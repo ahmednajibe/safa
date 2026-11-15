@@ -92,6 +92,45 @@ def test_shorten_keeps_pause_per_gap(tmp_path):
     assert s_dur - r_dur <= 0.25 * 8 + 0.5
 
 
+def test_shorten_keeps_exact_pause_at_audio_level(tmp_path):
+    """R1 B5: a 0.35 s gap and a 3.0 s gap each keep exactly
+    keep_pause_s of *audible* silence in the rendered output — the
+    pause is measured in the output file, not just 'still a pause'."""
+    from backend.media.silence_detect import speech_intervals_amplitude
+
+    sr = SR
+    t = np.arange(sr, dtype=np.float32) / sr
+    tone = 0.5 * np.sin(2 * np.pi * 440 * t)
+    parts = [
+        tone,
+        np.zeros(int(0.35 * sr), np.float32),
+        tone,
+        np.zeros(3 * sr, np.float32),
+        tone,
+    ]
+    src = tmp_path / "in.wav"
+    sf.write(str(src), np.concatenate(parts), sr)
+
+    res = _run(src, tmp_path / "work", {
+        "mode": "amplitude", "action": "shorten",
+        "min_silence_s": 0.3, "pad_s": 0.1, "keep_pause_s": 0.25,
+    })
+    assert res.message_code == "pauses_shortened"
+
+    # Measure the surviving pauses in the *output* file.
+    out_speech = speech_intervals_amplitude(
+        res.path, threshold_db=-40, min_silence_s=0.1
+    )
+    pauses = [
+        a2 - b1
+        for (_, b1), (a2, _) in zip(out_speech, out_speech[1:])
+        if a2 - b1 > 0.05
+    ]
+    assert len(pauses) == 2, out_speech
+    assert pauses[0] == pytest.approx(0.25, abs=0.06)
+    assert pauses[1] == pytest.approx(0.25, abs=0.06)
+
+
 def test_amplitude_mode_cuts_tone_gaps(tmp_path):
     """Volume-threshold mode finds the digital-silence gaps the VAD
     would miss (tones aren't speech)."""

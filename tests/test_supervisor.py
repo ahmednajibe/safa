@@ -5,6 +5,9 @@ pass-through jobs, no ML ops yet) so process-tree behaviour is covered for
 real, not mocked.
 """
 import json
+import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 
@@ -183,6 +186,125 @@ def test_cancel_kills_tree(tmp_path):
         assert not out.exists() or not any(out.iterdir())
     finally:
         sup.stop()
+
+
+# ---- R1 B2: cancel inside the spawn window kills the newborn worker ------------
+
+
+def test_cancel_during_spawn_kills_newborn_worker(tmp_path, monkeypatch):
+    """The race: ``next_queued`` → Popen → ``mark_running``. A cancel in
+    that window flips the row to ``cancelled``; the just-spawned worker
+    must be killed, not left running as an orphan."""
+    import backend.jobs.supervisor as supervisor
+
+    db, data, store, settings = _setup(tmp_path)
+    _media(db, "m", ARABIC_WAV)
+    j = _job(store)
+    sup = Supervisor(store, settings)
+
+    entered = threading.Event()
+    release = threading.Event()
+    spawned: list[subprocess.Popen] = []
+    real_popen = subprocess.Popen
+
+    def slow_popen(*a, **kw):
+        entered.set()
+        release.wait(10)
+        # a harmless sleeper standing in for the worker subprocess
+        p = real_popen(
+            [sys.executable, "-c", "import time; time.sleep(120)"]
+        )
+        spawned.append(p)
+        return p
+
+    monkeypatch.setattr(supervisor.subprocess, "Popen", slow_popen)
+    try:
+        t = threading.Thread(
+            target=sup._run_job, args=(j,), daemon=True
+        )
+        t.start()
+        assert entered.wait(5), "spawn never entered"
+        sup.cancel(j.id)  # queued path marks the row cancelled now
+        release.set()
+        t.join(15)
+        assert not t.is_alive(), (
+            "supervisor blocked in proc.wait() — newborn worker "
+            "was not killed"
+        )
+        assert spawned, "worker was never spawned"
+        assert spawned[0].poll() is not None, "newborn worker orphaned"
+        assert store.get(j.id).state == "cancelled"
+    finally:
+        release.set()
+        for p in spawned:
+            try:
+                p.kill()
+            except Exception:
+                pass
+
+
+def test_cancel_returns_without_blocking(tmp_path):
+    """cancel() must not sit on proc.wait() — the wait/kill runs on a
+    background thread so the HTTP handler returns immediately."""
+    db, data, store, settings = _setup(tmp_path)
+    _media(db, "m", ARABIC_WAV)
+    j = _job(store)
+    sup = Supervisor(store, settings)
+    sleeper = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(120)"]
+    )
+    try:
+        with sup._lock:
+            sup._proc = sleeper
+            sup._running_job_id = j.id
+        store.mark_running(j.id, sleeper.pid)
+        t0 = time.monotonic()
+        sup.cancel(j.id)
+        elapsed = time.monotonic() - t0
+        assert elapsed < 1.5, f"cancel() blocked {elapsed:.2f}s"
+        # the background killer finishes the job
+        _wait_state(store, j.id, {"cancelled"}, 15)
+    finally:
+        try:
+            sleeper.kill()
+        except Exception:
+            pass
+
+
+# ---- R1 B3: orphan workers from a crashed server --------------------------------
+
+
+def test_startup_kills_orphan_worker(tmp_path):
+    """A 'running' row whose worker_pid is alive with a backend.worker
+    cmdline is a corpse's leftover — kill the tree, then interrupt."""
+    db, data, store, settings = _setup(tmp_path)
+    _media(db, "m", ARABIC_WAV)
+    j = _job(store)
+    # cmdline carries backend.worker + the job id — the kill criteria
+    orphan = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(120)",
+         "backend.worker", j.id]
+    )
+    bystander = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(120)"]
+    )
+    j2 = _job(store)
+    try:
+        store.mark_running(j.id, orphan.pid)
+        store.mark_running(j2.id, bystander.pid)  # cmdline doesn't match
+        sup = Supervisor(store, settings)
+        killed = sup.kill_orphan_workers()
+        assert j.id in killed
+        assert orphan.wait(10) is not None
+        assert bystander.poll() is None, "non-worker process was killed"
+        store.mark_interrupted_on_startup()
+        assert store.get(j.id).state == "interrupted"
+    finally:
+        for p in (orphan, bystander):
+            try:
+                p.kill()
+            except Exception:
+                pass
 
 
 # ---- shutdown marks running job interrupted --------------------------------------

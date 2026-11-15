@@ -185,6 +185,22 @@ def _dur(path) -> float:
     return info.frames / info.samplerate
 
 
+def _r_frame_rate(path) -> str:
+    """Raw CFR rate string (``"25/1"``); avg_frame_rate skews on short
+    clips because the container duration omits the last frame's tail."""
+    import subprocess
+
+    from backend.core.ffmpeg import find_ffprobe
+
+    cp = subprocess.run(
+        [str(find_ffprobe()), "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=r_frame_rate",
+         "-print_format", "csv", str(path)],
+        capture_output=True, text=True, check=True,
+    )
+    return cp.stdout.strip().split(",")[1]
+
+
 def test_preview_trim_intersecting_window(tmp_path):
     """Preview [20, 40] + trim(25, 50) keeps [25, 40) → exactly 15 s."""
     src = _long_wav(tmp_path)
@@ -282,6 +298,35 @@ def test_unknown_op_raises(tmp_path):
         _run(CLIP, tmp_path, ops=[("bogus_op", {})])
 
 
+def test_video_no_fps_falls_back_to_25(tmp_path):
+    """R1 C2: a probe with no frame rate (e.g. still-image video) must
+    not leave ctx.fps None — ops snap to the same 25 fps grid the
+    renderer already falls back to."""
+    import dataclasses
+
+    p = probe(CLIP)
+    p.video = [dataclasses.replace(p.video[0], fps=None)]
+    outs = run_pipeline(
+        media_path=CLIP, probe=p,
+        audio_stream_index=p.audio[0].index,
+        ops=[("trim", {"start_s": 0.0, "end_s": 3.33})],
+        output=OutputSpec(audio_format="wav", keep_video=True),
+        job_root=tmp_path / "job",
+        on_progress=lambda e: None,
+        should_cancel=lambda: False,
+        device="cpu",
+    )
+    # 3.33 snapped to the 25 fps grid → 3.32
+    tl = json.loads(
+        (tmp_path / "job" / "output" / "timeline.json").read_text()
+    )
+    assert tl["segments"][0]["src_end"] == pytest.approx(3.32)
+    # and the rendered video ran at the 25 fps fallback (r_frame_rate —
+    # avg_frame_rate skews on short clips, see test_video_render)
+    video = next(o for o in outs if o.kind == "video")
+    assert _r_frame_rate(video.path) == "25/1"
+
+
 def test_arabic_output_name(tmp_path):
     outs, _ = _run(ARABIC_WAV, tmp_path)
     assert "تسجيل اختبار 1" in outs[0].name
@@ -291,6 +336,27 @@ def test_sanitize_stem_windows_chars():
     stem = sanitize_stem('a<b>:"|?*.wav')
     assert not set(stem) & set('<>:"/\\|?*')
     assert sanitize_stem("تسجيل اختبار 1.wav") == "تسجيل اختبار 1"
+
+
+_WIN_RESERVED = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def test_sanitize_stem_windows_reserved_names():
+    """Windows reserves device names in *any* extension (CON.wav is
+    still CON) — the stem must never produce one (R1 C1)."""
+    for bad in (
+        "CON.wav", "con.mp3", "NUL", "nul.flac", "aux.m4a", "PRN",
+        "COM1", "com9.wav", "LPT1", "lPt9.mkv", "CON.anything.ext",
+    ):
+        stem = sanitize_stem(bad)
+        assert stem.split(".")[0].upper() not in _WIN_RESERVED, (bad, stem)
+    # names merely containing a reserved word are untouched
+    assert sanitize_stem("concert.wav") == "concert"
+    assert sanitize_stem("my con file.wav") == "my con file"
 
 
 # ---- /api/health device fix (SPEC §9) ---------------------------------------

@@ -241,6 +241,10 @@ def main(argv: list[str]) -> int:
                 fh.write(traceback.format_exc())
         except OSError:
             pass
+        # R1 B12: a failed job must not leave partial output files that
+        # look like results (worker.log itself lives beside output/ and
+        # survives for debugging).
+        _clear_dir(job_root / "output")
         # SPEC §11 job_failed{op_id?}: the stage the job died in identifies
         # the op when the stage name maps back to the snapshot's op ids.
         failed_op = None

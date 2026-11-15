@@ -68,11 +68,31 @@ def test_trim_speed_durations_match_timeline(tmp_path):
     assert dst.suffix == ".mp4"
     p = probe(dst)
     frame = 1.0 / 25.0
+    # R1 B6: a speed change rescales timestamps, not the frame rate —
+    # output stays CFR at the source fps (37.5 fps was the bug).
+    assert p.video[0].fps == pytest.approx(25.0, abs=0.05)
     assert p.video[0].duration_s == pytest.approx(tl.out_duration,
                                                 abs=frame)
     assert p.audio[0].duration_s == pytest.approx(tl.out_duration,
                                                 abs=frame)
     assert abs(p.video[0].duration_s - p.audio[0].duration_s) <= frame
+
+
+def test_slowdown_also_keeps_source_fps(tmp_path):
+    """Speed < 1 duplicates frames at the source rate, not fps*speed."""
+    tl = Timeline.identity(10.0).with_speed(0.75)
+    audio = _sine_wav(tmp_path / "a.wav", tl.out_duration)
+    dst, _ = render_video(
+        CLIP, probe(CLIP).video[0].index, audio, tl,
+        tmp_path / "out" / "v", device="cpu", fps=25.0,
+        report=_report(), should_cancel=lambda: False,
+        script_path=tmp_path / "vf.txt",
+    )
+    p = probe(dst)
+    assert p.video[0].fps == pytest.approx(25.0, abs=0.05)
+    assert p.video[0].duration_s == pytest.approx(
+        tl.out_duration, abs=1.5 / 25.0
+    )
 
 
 def test_400_intervals_via_filter_script(tmp_path, clip60):
@@ -97,7 +117,20 @@ def test_400_intervals_via_filter_script(tmp_path, clip60):
     assert script.is_file()
     assert "select" in script.read_text()
     p = probe(dst)
-    assert p.video[0].duration_s == pytest.approx(tl.out_duration, abs=2.0)
+    # R1 weak test: two-frame tolerance (was abs=2.0 s) and the decoded
+    # packet count must equal out_duration × fps within one frame —
+    # a dropped/duplicated interval is invisible at ±2 s.
+    assert p.video[0].duration_s == pytest.approx(
+        tl.out_duration, abs=2.0 / 25.0
+    )
+    cp = subprocess.run(
+        [str(find_ffprobe()), "-v", "error",
+         "-select_streams", "v:0", "-show_entries", "packet=pts_time",
+         "-print_format", "csv", str(dst)],
+        capture_output=True, text=True, check=True,
+    )
+    n_packets = sum(1 for line in cp.stdout.splitlines() if "," in line)
+    assert n_packets == pytest.approx(tl.out_duration * 25.0, abs=1)
 
 
 def _gen_vfr(path: Path) -> Path:

@@ -208,6 +208,63 @@ def test_empty_and_tiny_inputs():
     assert detect_breaths(np.zeros(int(0.05 * SR), np.float32), SR) == []
 
 
+# ---- R1 B9: whole-file level stats ---------------------------------------------
+
+
+def test_long_pause_slice_needs_whole_file_stats(tmp_path):
+    """R1 B9: inside a ±1 s window beside a > ~11 s pause the per-slice
+    P85 lands on silence and the level gate empties — whole-file stats
+    keep the breath detectable at the splice."""
+    from backend.media.breaths import whole_file_level_stats
+
+    x, _ = load_mono(SPEECH)
+    seg = x[: int(4.0 * SR)]
+    breath = synth_breath(SR, dur_s=0.4, level_dbfs=-30.0)
+    gap = np.zeros(int(15.0 * SR), np.float32)
+    sig = np.concatenate([seg, gap, seg])          # 4 s + 15 s + 4 s
+    bs = len(seg) + int(14.0 * SR)                 # breath near gap end
+    sig[bs: bs + len(breath)] += breath
+    wav = tmp_path / "case.wav"
+    sf.write(str(wav), np.stack([sig, sig], axis=1), SR)
+
+    speech_iv = [(0.0, 4.0), (19.0, 23.0)]
+    stats = whole_file_level_stats(wav, speech_iv)
+    floor_db, speech_db = stats
+    assert speech_db > floor_db + 10  # stats actually see the speech
+
+    # The zone _breaths_near_splices scans for the gap edge:
+    # [4 - 1, 19 + 1] = [3, 20] — 17 s, ~88 % silence.
+    za = 3.0
+    sl = sig[int(za * SR): int(20.0 * SR)]
+    assert detect_breaths(sl, SR) == [], (
+        "slice-local stats unexpectedly found the breath — "
+        "the scenario no longer reproduces B9"
+    )
+    spans = detect_breaths(sl, SR, level_stats=stats)
+    assert spans, "whole-file stats did not restore detection"
+    a, b = spans[0]
+    assert za + a == pytest.approx(18.0, abs=0.08)
+    assert za + b == pytest.approx(18.4, abs=0.10)
+
+
+def test_whole_file_level_stats_sanity(tmp_path):
+    """floor sits at the silence bed, speech_db at the speech level."""
+    from backend.media.breaths import whole_file_level_stats
+
+    x, _ = load_mono(SPEECH)
+    seg = x[: int(3.0 * SR)]
+    gap = np.zeros(int(5.0 * SR), np.float32)
+    sig = np.concatenate([seg, gap, seg])
+    wav = tmp_path / "case.wav"
+    sf.write(str(wav), sig, SR)
+    floor_db, speech_db = whole_file_level_stats(
+        wav, [(0.0, 3.0), (8.0, 11.0)]
+    )
+    assert floor_db < -80.0           # digital-silence bed
+    seg_db = 20 * np.log10(np.sqrt((seg ** 2).mean()))
+    assert speech_db == pytest.approx(seg_db, abs=3.0)
+
+
 def test_speech_prob_passthrough():
     """Caller-supplied speech_prob skips VAD inference entirely."""
     sig, (bs, be) = _composite()

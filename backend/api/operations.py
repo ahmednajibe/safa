@@ -7,8 +7,11 @@ from pydantic import BaseModel
 
 from backend.api.errors import err
 from backend.core.capabilities import detect_capabilities
+from backend.core.messages import MESSAGES
 from backend.operations.registry import OPERATIONS, PRESETS, ops_in_order
-from backend.operations.rules import ParamError, resolve, unavailable_code
+from backend.operations.rules import (
+    ModelMissingError, ParamError, resolve, unavailable_code,
+)
 
 router = APIRouter()
 
@@ -40,8 +43,14 @@ class ResolveRequest(BaseModel):
 
 @router.post("/api/operations/resolve")
 def resolve_ops(body: ResolveRequest) -> dict:
+    caps = detect_capabilities()
     try:
-        eff = resolve(body.ops, _availability())
+        eff = resolve(body.ops, _availability(), models=caps.models)
+    except ModelMissingError as exc:
+        return err(
+            422, "model_missing", MESSAGES["model_missing"],
+            params=exc.params,
+        )
     except ParamError as exc:
         return err(422, "bad_param", str(exc), params=exc.params)
     except ValueError as exc:

@@ -185,6 +185,83 @@ def _level_stats(
     return floor, float(np.percentile(rms, 85))
 
 
+def whole_file_level_stats(
+    wav,
+    speech: list[tuple[float, float]],
+    should_cancel=None,
+) -> tuple[float, float]:
+    """(floor_dbfs, speech_dbfs) measured over the WHOLE file (R1 B9).
+
+    ``detect_breaths`` derives these from whatever slice it is handed;
+    beside a pause longer than ~11 s the P85 lands on silence and the
+    seed level gate empties. The stats are therefore measured once here
+    on streamed blocks — a frame counts as speech when its centre falls
+    inside a VAD speech interval, everything else forms the non-speech
+    pool the P10 floor comes from (mirrors ``_level_stats``).
+    """
+    import soundfile as sf
+
+    info = sf.info(str(wav))
+    sr, n = info.samplerate, info.frames
+    if n == 0:
+        return -120.0, -120.0
+    frame, hop = int(sr * FRAME_S), int(sr * HOP_S)
+    bounds = np.array(
+        [(a * sr, b * sr) for a, b in speech], dtype=np.float64
+    ).reshape(-1, 2)
+    rms_all: list[np.ndarray] = []
+    speech_flag: list[np.ndarray] = []
+    tail = np.zeros(0, np.float32)
+    tail_start = 0
+    pos = 0
+    with sf.SoundFile(str(wav), "r") as fin:
+        while pos < n:
+            if should_cancel is not None and should_cancel():
+                from backend.pipeline.types import CancelledError
+
+                raise CancelledError()
+            blk = fin.read(
+                min(1 << 16, n - pos), dtype="float32", always_2d=True
+            )
+            if not len(blk):
+                break
+            pos += len(blk)
+            buf = np.concatenate([tail, blk.mean(axis=1)])
+            base = tail_start
+            if len(buf) < frame:
+                tail = buf
+                continue
+            n_fr = (len(buf) - frame) // hop + 1
+            idx = hop * np.arange(n_fr)[:, None] + np.arange(frame)
+            fr = buf[idx]
+            rms = 20.0 * np.log10(
+                np.maximum(
+                    np.sqrt((fr * fr).mean(axis=1) + 1e-18), 1e-9
+                )
+            ).astype(np.float32)
+            centres = base + hop * np.arange(n_fr) + frame // 2
+            if len(bounds):
+                ins = (
+                    (centres[:, None] >= bounds[None, :, 0])
+                    & (centres[:, None] < bounds[None, :, 1])
+                ).any(axis=1)
+            else:
+                ins = np.zeros(n_fr, dtype=bool)
+            rms_all.append(rms)
+            speech_flag.append(ins)
+            tail = buf[hop * n_fr:]
+            tail_start = base + hop * n_fr
+    if not rms_all:
+        return -120.0, -120.0
+    rms = np.concatenate(rms_all)
+    ns = rms[~np.concatenate(speech_flag)]
+    base_arr = ns if len(ns) >= 30 else rms
+    return (
+        float(np.percentile(base_arr, 10)),
+        float(np.percentile(rms, 85)),
+    )
+
+
 def _runs(mask: np.ndarray) -> list[list[int]]:
     """Inclusive [start, end] index runs of True in ``mask``."""
     d = np.diff(mask.astype(np.int8), prepend=0, append=0)
@@ -210,6 +287,7 @@ def detect_breaths(
     *,
     sensitivity: str = "normal",
     return_detail: bool = False,
+    level_stats: tuple[float, float] | None = None,
 ) -> list[tuple[float, float]] | tuple[list[tuple[float, float]], dict]:
     """Breath spans ``[(start_s, end_s)]`` in ``x`` (mono or stereo).
 
@@ -242,7 +320,12 @@ def detect_breaths(
         ).astype(np.float32)
 
     feats = _frame_features(mono, sr)
-    floor_db, speech_db = _level_stats(feats, p)
+    if level_stats is None:
+        floor_db, speech_db = _level_stats(feats, p)
+    else:
+        # R1 B9: caller-measured whole-file stats keep the level gate
+        # honest when ``x`` is a mostly-silent window near a splice.
+        floor_db, speech_db = level_stats
     if speech_db - 4.0 <= floor_db + 3.0:
         return empty  # level gate is empty (e.g. digital silence)
 

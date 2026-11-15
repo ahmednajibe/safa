@@ -95,6 +95,19 @@ def _is_silent(block: np.ndarray) -> bool:
     return float(np.abs(block).max(initial=0.0)) < _SILENCE_EPS
 
 
+def _folddown_degenerate(block: np.ndarray) -> bool:
+    """True when the mono fold-down has ~zero variance on a *non-silent*
+    block — out-of-phase stereo (``L ≈ −R``) or near-DC content.
+
+    Upstream demucs normalises with ``ref = mix.mean(0); mix =
+    (mix − ref.mean()) / ref.std()``: when the fold-down's std is ~0 the
+    divide explodes into NaN/Inf and the stems come out as garbage
+    (argon_m7/R1 C3). Rescaling can't help — ref.std() scales with the
+    signal — so such windows bypass the model like silent ones.
+    """
+    return float(block.mean(axis=1).std()) < _SILENCE_EPS
+
+
 def _write_model_input(block: np.ndarray, dst: Path) -> Path:
     """48 kHz ``(n, ch)`` block → 44.1 kHz float WAV for the model.
 
@@ -366,7 +379,7 @@ def _run_attempt(
             if cancel():
                 raise CancelledError()
             n, ch = block.shape
-            if _is_silent(block):
+            if _is_silent(block) or _folddown_degenerate(block):
                 voice = block
                 music = np.zeros_like(block)
             else:

@@ -193,6 +193,28 @@ class Timeline:
             out_pos += segs[-1].out_end - out_pos
         return Timeline(self.source_duration, tuple(segs))
 
+    def keep_src(self, spans_src: list[tuple[float, float]]) -> "Timeline":
+        """Intersect kept source spans with ``spans_src`` (source time).
+
+        Snapping can round a boundary *outward* past the edge of the
+        parent coverage it was carved from — the stored map would tell
+        the video renderer to keep frames ``input_intervals`` drops
+        from the audio (R1 B7). Re-clip to the parent's kept spans and
+        rebuild contiguous output positions so both consumers agree.
+        """
+        spans = _normalize(spans_src, self.source_duration)
+        segs: list[Segment] = []
+        out_pos = 0.0
+        for seg in self.segments:
+            for a, b in spans:
+                lo = max(a, seg.src_start)
+                hi = min(b, seg.src_end)
+                if hi - lo <= _EPS:
+                    continue
+                segs.append(Segment(lo, hi, out_pos, seg.speed))
+                out_pos = segs[-1].out_end
+        return Timeline(self.source_duration, tuple(segs))
+
     # ---- serialization ------------------------------------------------------------
 
     def to_dict(self) -> dict:

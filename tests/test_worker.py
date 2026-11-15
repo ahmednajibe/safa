@@ -129,6 +129,32 @@ def test_worker_failing_op_marks_failed(tmp_path, monkeypatch):
     assert "NotImplementedError" in log.read_text(encoding="utf-8")
 
 
+def test_worker_failed_job_clears_partial_outputs(tmp_path, monkeypatch):
+    """R1 B12: a job that fails after output files exist must leave
+    output/ empty — partial results must not look downloadable
+    (worker.log lives beside output/ and survives)."""
+    db, data = _setup(tmp_path, monkeypatch)
+    _media(db, "m1", ARABIC_WAV)
+    store = JobStore(db)
+
+    def _boom(in_wav, params, ctx):
+        raise RuntimeError("encoder exploded")
+
+    monkeypatch.setitem(IMPLEMENTATIONS, "silence", _boom)
+    j = _job(store, "m1", ops=[("silence", {})])
+    job_root = data / "jobs" / j.id
+    outdir = job_root / "output"
+    outdir.mkdir(parents=True)
+    (outdir / "partial_clean.wav").write_bytes(b"partial")
+
+    rc = worker_main([j.id])
+
+    assert rc == 1
+    assert store.get(j.id).state == "failed"
+    assert outdir.is_dir() and not any(outdir.iterdir())
+    assert (job_root / "worker.log").is_file()
+
+
 def test_worker_cancelled_before_start(tmp_path, monkeypatch):
     """cancel flag set → CancelledError path → state cancelled, output empty."""
     db, data = _setup(tmp_path, monkeypatch)
