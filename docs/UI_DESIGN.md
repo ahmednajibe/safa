@@ -135,7 +135,7 @@ Mark (simple amber-free white monogram: a waveform-in-square glyph, 20px) + "Sou
 | separate | Separate voice and music | Keep the voice, keep the music, or export both. |
 | dereverb | Reduce room echo | Dries up the hollow sound of big or bare rooms. |
 | denoise | Reduce background noise | Lowers hiss, fans, traffic and room noise while keeping speech natural. |
-| declick | Remove clicks and pops | Smooths mouth clicks, crackles and sharp ticks. |
+| declick | Remove mouth clicks | Removes saliva clicks, lip smacks and crackle without touching consonants. |
 | enhance | Polish voice | Balances tone, softens harsh "s" sounds and evens out loud and quiet words. |
 | enhance_ai | Restore damaged voice | Tries to rebuild muffled or badly recorded speech (experimental). |
 | silence | Cut silence | Removes the silent parts so only the speech is left (or just shortens long pauses). |
@@ -168,3 +168,60 @@ Feedback only (app screens perform no entrances): press `scale(0.97)` 120ms, car
 - `node <design-taste-frontend>/scripts/lint.mjs --app frontend/src` and `inspect.mjs --app` on the production build at 1440/768/390: 0 FAIL.
 - web-design-guidelines review of the UI code.
 - Browser walkthrough (webapp-testing): upload → preset → preview → process → A/B → download, keyboard-only pass, Arabic filename.
+
+## 12. Arabic (العربية) copy — draft for review
+Modern Standard Arabic, short and plain (for non-technical friends).
+
+| key | English | العربية |
+|---|---|---|
+| lang.button | العربية | English |
+| app.name | Sound System | Sound System (brand stays Latin) |
+| drop.title | Drop audio or video here | أفلت ملف صوت أو فيديو هنا |
+| drop.choose | Choose file | اختر ملفًا |
+| drop.meta | … · stays on this computer | … · يبقى الملف على جهازك |
+| drop.release | Release to add | أفلت لإضافته |
+| rack.header | Steps run top to bottom | تُنفَّذ الخطوات من الأعلى إلى الأسفل |
+| rack.needFile | Add a file to start | أضف ملفًا للبدء |
+| pill.comingLater | Coming later | قريبًا |
+| pill.modelMissing | Model not downloaded yet — connect to the internet once | النموذج غير محمَّل بعد — اتصل بالإنترنت مرة واحدة |
+| pill.unavailable | Not available on this computer | غير متاح على هذا الجهاز |
+| device.label | Process on | المعالجة على |
+| device.gpu | Graphics card | كرت الشاشة |
+| device.cpu | Processor | المعالج |
+| device.gpuReady | GPU ready | كرت الشاشة جاهز |
+| device.cpuOnly | CPU only | المعالج فقط |
+| device.fallback | Graphics memory ran out. Running this step on the processor instead. | امتلأت ذاكرة كرت الشاشة، لذلك تُنفَّذ هذه الخطوة على المعالج. |
+| action.process | Process | ابدأ المعالجة |
+| action.preview | Preview region | معاينة المقطع |
+| action.cancel | Cancel | إلغاء |
+| action.retry | Retry | إعادة المحاولة |
+| action.download | Download | تنزيل |
+| ab.original | Original | الأصلي |
+| ab.processed | Processed | بعد المعالجة |
+| history.title | History | السجل |
+| history.empty | Your processed recordings will appear here. | ستظهر هنا تسجيلاتك بعد معالجتها. |
+| progress.step | Step {n} of {total} | الخطوة {n} من {total} |
+| progress.estimating | Estimating… | جارٍ التقدير… |
+| progress.working | Working… | جارٍ العمل… |
+| err.noAudio | This video has no audio track. Choose another file. | هذا الفيديو لا يحتوي على صوت. اختر ملفًا آخر. |
+| err.unsupported | This file type isn't supported. | نوع هذا الملف غير مدعوم. |
+| msg.silence_removed | Removed {seconds} s of silence in {count} places | حُذف {seconds} ث من الصمت في {count} موضعًا |
+
+Presets: Podcast cleanup = تنظيف بودكاست · Remove background music = إزالة الموسيقى الخلفية · Fix echoey room = إصلاح صدى الغرفة · Lecture = محاضرة · Karaoke = كاريوكي · Video jump-cut = قص فيديو سريع · Custom = مخصص
+
+| op | الاسم | الوصف |
+|---|---|---|
+| trim | قص البداية والنهاية | احتفظ فقط بالجزء بين وقت البداية والنهاية. |
+| channel | ضبط القنوات | أبقِ الصوت ستيريو، أو حوّله إلى أحادي، أو استخدم الجانب الأيسر أو الأيمن فقط. |
+| highpass | إزالة الهدير المنخفض | يزيل الطرقات العميقة واهتزاز المكتب وصوت التكييف. |
+| dehum | إزالة طنين الكهرباء | يزيل الطنين الثابت (50/60 هرتز) الصادر من الكهرباء والأجهزة. |
+| separate | فصل الصوت عن الموسيقى | احتفظ بالكلام، أو بالموسيقى، أو صدِّر الاثنين. |
+| dereverb | تقليل صدى الغرفة | يخفف الصوت المجوَّف في الغرف الكبيرة أو الفارغة. |
+| denoise | تقليل الضوضاء الخلفية | يخفض الهسهسة وصوت المراوح والشارع وضوضاء الغرفة مع إبقاء الكلام طبيعيًا. |
+| declick | إزالة طقطقة الفم | يزيل أصوات اللعاب وطقطقة الشفاه والخشخشة دون المساس بالحروف. |
+| enhance | تحسين الصوت | يوازن نبرة الصوت، ويخفف حدة حرف السين، ويقلل الرنين المنخفض. |
+| enhance_ai | إصلاح الصوت التالف | يحاول إعادة بناء الكلام المكتوم أو سيئ التسجيل (تجريبي). |
+| silence | قص الصمت | يحذف أجزاء الصمت ليبقى الكلام فقط (أو يقصِّر الوقفات الطويلة فقط). |
+| speed | تغيير السرعة | أسرع أو أبطأ دون أن تتغير طبقة الصوت. |
+| loudness | توحيد مستوى الصوت | يضبط مستوى استماع ثابتًا (بودكاست −16 / يوتيوب −14) ويمنع التشوه. |
+| subtitles | إنشاء ترجمة نصية | يكتب نصًا مُزامَنًا مع الصوت (SRT/VTT) من الصوت النهائي. |

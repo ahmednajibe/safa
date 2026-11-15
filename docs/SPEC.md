@@ -101,3 +101,12 @@ Arabic filename + spaces; 60 s noisy speech+music fixture; 10 s mp4; long (≥30
 - Params: `action` select `remove` ("Remove silence", default) | `shorten` ("Shorten pauses"); `min_silence_s` 0.3 (0.1–3.0, label "Shortest silence to cut"); `pad_s` 0.1 (0–0.5, advanced, label "Keep around speech"); `keep_pause_s` 0.25 (only for shorten, label "Pause length after shortening"); `mode` vad | amplitude; `threshold_db` −40 (amplitude only, advanced).
 - Leading and trailing silence are always removed in `remove` mode.
 - Presets "Podcast cleanup", "Lecture" and "Video jump-cut" use `action: remove`.
+
+## 11. Arabic interface (user request 2026-11-15)
+- Top bar language button: shows the *other* language's own name ("العربية" while in English, "English" while in Arabic). Choice saved in `localStorage`; first visit follows `navigator.language` (ar* → Arabic).
+- Frontend i18n: `frontend/src/i18n/{en,ar}.ts` dictionaries + `useT()` hook; `<html lang dir>` switches (`dir="rtl"` for Arabic). No library required (small app); keys typed so a missing Arabic key is a TypeScript error.
+- Op names, descriptions, param labels and option labels come from the dictionaries **keyed by op id / param key / option value**, not from the backend's English strings (backend strings remain the English fallback).
+- **Backend messages are localizable:** every user-facing message from the backend (job `message`, `error`, stage names, op result messages, API error `message`) also carries `message_code` (snake_case) + `message_params` (JSON object), e.g. `{"message_code":"silence_removed","message_params":{"seconds":12.4,"count":37}}`. The English `message` stays for logs/tests. Stage names use the op id.
+- RTL rules: layout mirrors with CSS logical properties (`ms-*/me-*/ps-*/pe-*`, `start/end`), icons that imply direction flip, **but the waveform, time ruler, transport and timecodes stay LTR** (`dir="ltr"` islands). Filenames keep `dir="auto"` + bidi isolation. Numbers stay Western digits (0–9) with tabular figures.
+- Arabic font: IBM Plex Sans Arabic 400/500/600 via `@fontsource/ibm-plex-sans-arabic` (offline), stacked before Inter when `lang="ar"`; Arabic line-height 1.6 for body text.
+- Arabic copy draft: `docs/UI_DESIGN.md` §12 (reviewed by Astra + Argon).
