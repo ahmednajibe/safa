@@ -21,6 +21,7 @@ from backend.core.ffmpeg import has_encoder
 from backend.core.messages import msg
 from backend.media.decode import decode_to_wav
 from backend.media.encode import encode_audio, remux_video
+from backend.media.peaks import compute_peaks
 from backend.media.probe import MediaProbe
 from backend.media.storage import sanitize_stem
 from backend.media.timeline import Timeline
@@ -29,6 +30,7 @@ from backend.operations.base import OpContext
 from backend.operations.impl import IMPLEMENTATIONS
 from backend.operations.registry import OPERATIONS
 from backend.pipeline.device import resolve_device
+from backend.pipeline.estimates import eta_remaining, stage_estimates
 from backend.pipeline.types import (
     CancelCheck,
     CancelledError,
@@ -91,7 +93,17 @@ def run_pipeline(
     fps = (probe.video[0].fps or 25.0) if want_video else None
     total = 2 + len(ops) + (1 if want_video else 0)
 
-    def _emit(name: str, idx: int, dev: str) -> StageEmit:
+    # M9a Task 0: per-stage estimates drive eta_sec on every progress row;
+    # measured wall seconds of finished stages rescale what's left.
+    est_duration_s = (
+        (preview[1] - preview[0]) if preview else probe.duration_s
+    )
+    est_list = stage_estimates(
+        est_duration_s, ops, device, want_video, caps
+    )
+    measured: dict[int, float] = {}
+
+    def _emit(stage_id: str, name: str, idx: int, dev: str) -> StageEmit:
         def emit(
             pct: float | None = None,
             message: str | None = None,
@@ -113,6 +125,8 @@ def run_pipeline(
                         (idx + min(pct or 0.0, 1.0)) / total
                     ),
                     device=device or dev,
+                    stage_id=stage_id,
+                    eta_sec=eta_remaining(est_list, idx, pct, measured),
                     message=message,
                     message_code=message_code,
                     message_params=message_params,
@@ -142,6 +156,13 @@ def run_pipeline(
         )
         outputs.append(
             OutputFile(dst.name, "audio", dst, dst.stat().st_size)
+        )
+        # M9a Task 0: processed peaks for the A/B waveform — computed here,
+        # while the final 48 kHz wav still exists (work/ dies on success).
+        # Served by GET /api/jobs/{id}/peaks, not registered as a download.
+        (out_dir / "peaks.json").write_text(
+            json.dumps(compute_peaks(current["wav"])),
+            encoding="utf-8",
         )
 
     def _rebuild(emit: StageEmit) -> None:
@@ -228,23 +249,28 @@ def run_pipeline(
 
         return _stage
 
-    stages: list[tuple[str, str, Callable[[StageEmit], None]]] = [
-        ("Reading file", "cpu", _decode)
+    stages: list[tuple[str, str, str, Callable[[StageEmit], None]]] = [
+        ("decode", "Reading file", "cpu", _decode)
     ]
     for op_id, params in ops:
         dev = resolve_device(device, op_id, params or {}, caps)
-        stages.append((_op_stage_name(op_id), dev, _op_stage(op_id, params, dev)))
-    stages.append(("Saving audio", "cpu", _save_audio))
+        stages.append((
+            op_id, _op_stage_name(op_id), dev,
+            _op_stage(op_id, params, dev),
+        ))
+    stages.append(("encode", "Saving audio", "cpu", _save_audio))
     if want_video:
-        stages.append(("Rebuilding video", "cpu", _rebuild))
+        stages.append(("video", "Rebuilding video", "cpu", _rebuild))
 
-    assert len(stages) == total
-    for idx, (name, dev, fn) in enumerate(stages):
+    assert len(stages) == total == len(est_list)
+    for idx, (stage_id, name, dev, fn) in enumerate(stages):
         if should_cancel():
             raise CancelledError()
-        emit = _emit(name, idx, dev)
+        emit = _emit(stage_id, name, idx, dev)
         emit(0.0)
+        t0 = time.monotonic()
         fn(emit)
+        measured[idx] = time.monotonic() - t0
 
     # The timeline map ships with every job (identity included): the UI
     # uses it for A/B playhead translation, the cut list and subtitles.
@@ -258,8 +284,9 @@ def run_pipeline(
         )
     on_progress(
         Progress(
-            stage="Done", stage_idx=total, total_stages=total,
-            stage_pct=1.0, overall_pct=1.0,
+            stage="Done", stage_id="done", stage_idx=total,
+            total_stages=total, stage_pct=1.0, overall_pct=1.0,
+            eta_sec=0.0,
         )
     )
     shutil.rmtree(work, ignore_errors=True)  # intermediates die on success

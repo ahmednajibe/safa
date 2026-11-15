@@ -15,6 +15,7 @@ from backend.api.health import router as health_router
 from backend.api.jobs import router as jobs_router
 from backend.api.media import router as media_router
 from backend.api.operations import router as operations_router
+from backend.api.settings import router as settings_router
 from backend.core.messages import MESSAGES as _MSG
 from backend.core.models_manifest import configure_model_env
 from backend.core.paths import ROOT
@@ -177,6 +178,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(media_router)
     app.include_router(estimate_router)
     app.include_router(jobs_router)
+    app.include_router(settings_router)
     _mount_spa(app)
     return app
 

@@ -34,6 +34,7 @@ class Job:
     audio_stream: int
     state: str
     stage: str | None = None
+    stage_id: str | None = None
     stage_idx: int | None = None
     total_stages: int | None = None
     stage_pct: float | None = None
@@ -71,6 +72,7 @@ class Job:
             audio_stream=r.get("audio_stream") or 0,
             state=r.get("state"),
             stage=r.get("stage"),
+            stage_id=r.get("stage_id"),
             stage_idx=r.get("stage_idx"),
             total_stages=r.get("total_stages"),
             stage_pct=r.get("stage_pct"),

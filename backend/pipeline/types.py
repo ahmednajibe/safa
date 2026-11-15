@@ -33,6 +33,12 @@ class Progress:
     overall_pct: float | None
     message: str | None = None
     device: str | None = None
+    # M9a Task 0: machine-readable stage identity (op id / decode / encode /
+    # video / done) — the UI translates it; ``stage`` stays English for logs.
+    stage_id: str | None = None
+    # Seconds remaining, from estimates × remaining stages refined by
+    # measured stage seconds; None while unknown.
+    eta_sec: float | None = None
     # SPEC §11: the English ``message`` is only a fallback — the frontend
     # translates via ``message_code`` + ``message_params``.
     message_code: str | None = None

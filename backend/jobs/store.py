@@ -229,17 +229,20 @@ class JobStore:
         con = self._con()
         try:
             con.execute(
-                "UPDATE jobs SET stage=?, stage_idx=?, total_stages=?,"
-                " stage_pct=?, overall_pct=?, device=?, message=?,"
+                "UPDATE jobs SET stage=?, stage_id=?, stage_idx=?,"
+                " total_stages=?, stage_pct=?, overall_pct=?, device=?,"
+                " eta_sec=?, message=?,"
                 " message_code=?, message_params_json=?"
                 " WHERE id=?",
                 (
                     p.stage,
+                    p.stage_id,
                     p.stage_idx,
                     p.total_stages,
                     p.stage_pct,
                     p.overall_pct,
                     p.device,
+                    p.eta_sec,
                     p.message,
                     p.message_code,
                     (
@@ -336,7 +339,8 @@ class JobStore:
             con.execute(
                 "UPDATE jobs SET state=?, error=?, message=?,"
                 " error_code=?, error_params_json=?,"
-                " message_code=?, message_params_json=?, finished_at=?"
+                " message_code=?, message_params_json=?, eta_sec=NULL,"
+                " finished_at=?"
                 " WHERE id=? AND state NOT IN"
                 " ('completed','cancelled','interrupted')",
                 (
@@ -456,14 +460,59 @@ class JobStore:
         finally:
             con.close()
 
+    def set_saved_path(
+        self, job_id: str, name: str, saved_path: Path | str
+    ) -> None:
+        """Record where an output was auto-copied (SPEC §12)."""
+        con = self._con()
+        try:
+            con.execute(
+                "UPDATE job_files SET saved_path=? WHERE job_id=? AND name=?",
+                (str(saved_path), job_id, name),
+            )
+            con.commit()
+        finally:
+            con.close()
+
     def files(self, job_id: str) -> list[dict]:
         con = self._con()
         try:
             rows = con.execute(
-                "SELECT name, kind, path, size_bytes FROM job_files"
-                " WHERE job_id=? ORDER BY name",
+                "SELECT name, kind, path, size_bytes, saved_path"
+                " FROM job_files WHERE job_id=? ORDER BY name",
                 (job_id,),
             ).fetchall()
             return [dict(r) for r in rows]
+        finally:
+            con.close()
+
+    # ---- app settings (SPEC §12 "Always save to" folder) ----------------------
+
+    def get_setting(self, key: str) -> str | None:
+        con = self._con()
+        try:
+            row = con.execute(
+                "SELECT value FROM settings WHERE key=?", (key,)
+            ).fetchone()
+            return row["value"] if row else None
+        finally:
+            con.close()
+
+    def set_setting(self, key: str, value: str) -> None:
+        con = self._con()
+        try:
+            con.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
+                (key, value),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+    def delete_setting(self, key: str) -> None:
+        con = self._con()
+        try:
+            con.execute("DELETE FROM settings WHERE key=?", (key,))
+            con.commit()
         finally:
             con.close()

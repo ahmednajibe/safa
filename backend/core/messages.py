@@ -84,6 +84,21 @@ MESSAGES: dict[str, str] = {
     "timeline_not_found": (
         "The timeline isn't available for this job yet."
     ),
+    "peaks_not_found": (
+        "The waveform isn't available for this job yet."
+    ),
+    # saving outputs (SPEC §12)
+    "saved_to": "Saved to {path}",
+    "output_dir_set": "Results will be saved to {path}",
+    "output_dir_invalid": (
+        "This folder can't be used. Choose another one."
+    ),
+    "picker_unavailable": (
+        "The folder window couldn't open on this computer."
+    ),
+    "picker_busy": "A folder window is already open.",
+    "auto_save_failed": "Couldn't save to {path}. Save it manually.",
+    "no_saved_path": "This file wasn't saved to a folder.",
     "in_use": "A running job is using this file.",
     "processing": "Still preparing this file.",
     "client_disconnected": "The upload was interrupted.",

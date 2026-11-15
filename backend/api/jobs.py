@@ -17,11 +17,13 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from backend.api.errors import err
+from backend.api.media import _file_response, _media_type
+from backend.core import output_dir
 from backend.core.capabilities import detect_capabilities
 from backend.core.messages import MESSAGES as _MSG
 from backend.db import connect
@@ -54,6 +56,20 @@ def _job_payload(store, job: Job) -> dict:
     d = job.to_dict()
     d["queue_position"] = store.queue_position(job.id)
     return d
+
+
+def _files_payload(store, job_id: str) -> list[dict]:
+    """``files`` for job payloads — name/kind/size + where a copy was
+    auto-saved (SPEC §12), None when only the app copy exists."""
+    return [
+        {
+            "name": f["name"],
+            "kind": f["kind"],
+            "size_bytes": f["size_bytes"],
+            "saved_path": f.get("saved_path"),
+        }
+        for f in store.files(job_id)
+    ]
 
 
 def _media_row(db_path: Path, media_id: str):
@@ -212,6 +228,9 @@ def list_jobs(request: Request):
     for r in rows:
         d = _job_payload(store, Job.from_row(r))
         d["filename"] = r["media_filename"]
+        # M9a Task 0: history rows carry output files (like GET /jobs/{id}
+        # and every SSE state event) so the drawer needs no per-row fetch.
+        d["files"] = _files_payload(store, r["id"])
         out.append(d)
     return {"jobs": out}
 
@@ -225,10 +244,7 @@ def get_job(request: Request, job_id: str):
     if job is None:
         return err(404, "job_not_found", _MSG["job_not_found"])
     d = _job_payload(store, job)
-    d["files"] = [
-        {"name": f["name"], "kind": f["kind"], "size_bytes": f["size_bytes"]}
-        for f in store.files(job_id)
-    ]
+    d["files"] = _files_payload(store, job_id)
     return d
 
 
@@ -255,14 +271,9 @@ async def job_events(request: Request, job_id: str):
                 return
             payload = _job_payload(store, job)
             # files ride every state event so a reconnect sees them (M9).
-            payload["files"] = [
-                {
-                    "name": f["name"],
-                    "kind": f["kind"],
-                    "size_bytes": f["size_bytes"],
-                }
-                for f in await run_in_threadpool(store.files, job_id)
-            ]
+            payload["files"] = await run_in_threadpool(
+                _files_payload, store, job_id
+            )
             text = json.dumps(payload, ensure_ascii=False)
             if text != last_payload:
                 yield f"event: state\ndata: {text}\n\n"
@@ -366,6 +377,33 @@ def job_timeline(request: Request, job_id: str):
         return err(404, "timeline_not_found", _MSG["timeline_not_found"])
 
 
+@router.get("/api/jobs/{job_id}/peaks")
+def job_peaks(request: Request, job_id: str):
+    """Waveform peaks of the *processed* audio (A/B compare, M9a Task 0).
+
+    Written by the runner right after the encode stage; 404 until the job
+    is completed (a failed/cancelled job has no processed waveform).
+    """
+    store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    job = store.get(job_id)
+    if job is None:
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    path = (
+        request.app.state.settings.data_dir
+        / "jobs" / job_id / "output" / "peaks.json"
+    )
+    if job.state != "completed" or not path.is_file():
+        return err(404, "peaks_not_found", _MSG["peaks_not_found"])
+    try:
+        return JSONResponse(
+            json.loads(path.read_text(encoding="utf-8"))
+        )
+    except (OSError, json.JSONDecodeError):
+        return err(404, "peaks_not_found", _MSG["peaks_not_found"])
+
+
 @router.get("/api/jobs/{job_id}/files/{name}")
 def download_file(request: Request, job_id: str, name: str):
     store = _store(request)
@@ -381,11 +419,32 @@ def download_file(request: Request, job_id: str, name: str):
     path = Path(match["path"])
     if not path.is_file():
         return err(404, "job_not_found", _MSG["job_not_found"])
-    return FileResponse(
-        path,
-        media_type="application/octet-stream",
-        headers={
-            "Content-Disposition": "attachment; "
-            f"filename*=UTF-8''{quote(match['name'])}"
-        },
+    # M9a Task 0: media.py's Range-aware responder (206 + real content
+    # type), with the UTF-8 download name restored on top.
+    resp = _file_response(path, request, _media_type(path))
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename*=UTF-8''{quote(match['name'])}"
     )
+    return resp
+
+
+@router.post("/api/jobs/{job_id}/files/{name}/reveal")
+def reveal_file(request: Request, job_id: str, name: str):
+    """'Show in folder': select the auto-saved copy in File Explorer
+    (SPEC §12). Only meaningful when ``job_files.saved_path`` exists —
+    a manually saved file's location is invisible to the browser."""
+    store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    if store.get(job_id) is None:
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    match = next(
+        (f for f in store.files(job_id) if f["name"] == name), None
+    )
+    if match is None:
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    saved = match.get("saved_path")
+    if not saved or not Path(saved).is_file():
+        return err(404, "no_saved_path", _MSG["no_saved_path"])
+    output_dir.reveal_in_explorer(Path(saved))
+    return {"revealed": True, "path": saved}

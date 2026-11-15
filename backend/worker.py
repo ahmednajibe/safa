@@ -220,6 +220,15 @@ def main(argv: list[str]) -> int:
         )
         for f in outputs:
             store.add_file(job_id, f)
+        # SPEC §12: copy outputs to the "Always save to" folder when set.
+        # Copy, never move — History/A-B/preview read the app copy. Never
+        # previews, and never a reason to fail the job.
+        from backend.core import output_dir as _outdir
+
+        try:
+            _outdir.auto_save_outputs(store, job_id, job.kind, outputs)
+        except Exception:
+            pass
         text, code, params = msg("job_done")
         store.finish(
             job_id, "completed", message=text,

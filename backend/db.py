@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS job_files (
     size_bytes INTEGER,
     PRIMARY KEY (job_id, name)
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 
@@ -72,6 +76,14 @@ _JOBS_NEW_COLUMNS = (
     ("error_code", "TEXT"),
     ("error_params_json", "TEXT"),
     ("warnings_json", "TEXT"),
+    ("stage_id", "TEXT"),
+    ("eta_sec", "REAL"),
+)
+
+# M9a Task 0: where each output was auto-copied (SPEC §12), NULL when the
+# app copy in data/jobs/<id>/output is the only one.
+_JOB_FILES_NEW_COLUMNS = (
+    ("saved_path", "TEXT"),
 )
 
 
@@ -80,6 +92,10 @@ def _migrate(con: sqlite3.Connection) -> None:
     for name, ddl in _JOBS_NEW_COLUMNS:
         if name not in existing:
             con.execute(f"ALTER TABLE jobs ADD COLUMN {name} {ddl}")
+    existing = {r[1] for r in con.execute("PRAGMA table_info(job_files)")}
+    for name, ddl in _JOB_FILES_NEW_COLUMNS:
+        if name not in existing:
+            con.execute(f"ALTER TABLE job_files ADD COLUMN {name} {ddl}")
 
 
 def init_db(db_path: Path) -> None:

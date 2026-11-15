@@ -79,6 +79,13 @@ _MIME = {
 _MSG = MESSAGES  # SPEC §11: single source in backend/core/messages.py
 
 
+def _media_type(path: Path) -> str:
+    """Content-Type for a stored media/output file."""
+    return _MIME.get(
+        path.suffix.lower()
+    ) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+
 def _jsonable_probe(row) -> dict:
     try:
         return json.loads(row["probe_json"])
@@ -447,10 +454,7 @@ def get_file(request: Request, media_id: str):
     path = Path(row["stored_path"])
     if not path.is_file():
         return err(404, "media_not_found", _MSG["media_not_found"])
-    media_type = _MIME.get(
-        path.suffix.lower()
-    ) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    return _file_response(path, request, media_type)
+    return _file_response(path, request, _media_type(path))
 
 
 @router.delete("/api/media/{media_id}", status_code=204)
