@@ -169,59 +169,72 @@ Feedback only (app screens perform no entrances): press `scale(0.97)` 120ms, car
 - web-design-guidelines review of the UI code.
 - Browser walkthrough (webapp-testing): upload → preset → preview → process → A/B → download, keyboard-only pass, Arabic filename.
 
-## 12. Arabic (العربية) copy — draft for review
-Modern Standard Arabic, short and plain (for non-technical friends).
+## 12. Arabic (العربية) copy — FINAL (Claude draft, reviewed by Astra + Argon: `docs/brainstorm/*_arabic.md`)
+Modern Standard Arabic, short and plain; ops use 3rd-person present verbs; "transcription" is تفريغ النص, never ترجمة.
 
 | key | English | العربية |
 |---|---|---|
 | lang.button | العربية | English |
 | app.name | Sound System | Sound System (brand stays Latin) |
-| drop.title | Drop audio or video here | أفلت ملف صوت أو فيديو هنا |
+| drop.title | Drop audio or video here | اسحب ملف صوت أو فيديو وأفلته هنا |
 | drop.choose | Choose file | اختر ملفًا |
 | drop.meta | … · stays on this computer | … · يبقى الملف على جهازك |
-| drop.release | Release to add | أفلت لإضافته |
+| drop.release | Release to add | أفلت الملف لإضافته |
 | rack.header | Steps run top to bottom | تُنفَّذ الخطوات من الأعلى إلى الأسفل |
 | rack.needFile | Add a file to start | أضف ملفًا للبدء |
 | pill.comingLater | Coming later | قريبًا |
-| pill.modelMissing | Model not downloaded yet — connect to the internet once | النموذج غير محمَّل بعد — اتصل بالإنترنت مرة واحدة |
+| pill.modelMissing | Model not downloaded yet — connect to the internet once | نموذج الذكاء الاصطناعي غير مُنزَّل — اتصل بالإنترنت مرة واحدة لتنزيله |
 | pill.unavailable | Not available on this computer | غير متاح على هذا الجهاز |
-| device.label | Process on | المعالجة على |
-| device.gpu | Graphics card | كرت الشاشة |
+| device.label | Process on | المعالجة باستخدام |
+| device.gpu | Graphics card | كارت الشاشة |
 | device.cpu | Processor | المعالج |
-| device.gpuReady | GPU ready | كرت الشاشة جاهز |
+| device.gpuReady | GPU ready | كارت الشاشة جاهز |
 | device.cpuOnly | CPU only | المعالج فقط |
-| device.fallback | Graphics memory ran out. Running this step on the processor instead. | امتلأت ذاكرة كرت الشاشة، لذلك تُنفَّذ هذه الخطوة على المعالج. |
+| device.fallback | Graphics memory ran out. Running this step on the processor instead. | امتلأت ذاكرة كارت الشاشة، لذلك نكمل هذه الخطوة على المعالج. |
 | action.process | Process | ابدأ المعالجة |
 | action.preview | Preview region | معاينة المقطع |
 | action.cancel | Cancel | إلغاء |
 | action.retry | Retry | إعادة المحاولة |
 | action.download | Download | تنزيل |
-| ab.original | Original | الأصلي |
+| ab.original | Original | قبل المعالجة |
 | ab.processed | Processed | بعد المعالجة |
 | history.title | History | السجل |
 | history.empty | Your processed recordings will appear here. | ستظهر هنا تسجيلاتك بعد معالجتها. |
 | progress.step | Step {n} of {total} | الخطوة {n} من {total} |
-| progress.estimating | Estimating… | جارٍ التقدير… |
+| progress.estimating | Estimating… | جارٍ تقدير الوقت… |
 | progress.working | Working… | جارٍ العمل… |
 | err.noAudio | This video has no audio track. Choose another file. | هذا الفيديو لا يحتوي على صوت. اختر ملفًا آخر. |
-| err.unsupported | This file type isn't supported. | نوع هذا الملف غير مدعوم. |
-| msg.silence_removed | Removed {seconds} s of silence in {count} places | حُذف {seconds} ث من الصمت في {count} موضعًا |
+| err.unsupported | This file type isn't supported. | صيغة الملف غير مدعومة. اختر ملف صوت أو فيديو آخر. |
+| msg.silence_removed | Removed {seconds} s of silence in {count} places | حُذف {seconds} ثانية من الصمت في {places} |
 
-Presets: Podcast cleanup = تنظيف بودكاست · Remove background music = إزالة الموسيقى الخلفية · Fix echoey room = إصلاح صدى الغرفة · Lecture = محاضرة · Karaoke = كاريوكي · Video jump-cut = قص فيديو سريع · Custom = مخصص
+`{places}` uses `Intl.PluralRules('ar')`: zero → "{n} موضع"; one → "موضع واحد"; two → "موضعين"; few (3–10) → "{n} مواضع"; many (11–99) → "{n} موضعًا"; other (100+) → "{n} موضع". Every `{count}` message in `ar.ts` is a plural-form object, not a string.
+
+Presets: Podcast cleanup = تنقية البودكاست · Remove background music = إزالة موسيقى الخلفية · Fix echoey room = معالجة صدى الغرفة · Lecture = محاضرة · Karaoke = كاريوكي · Video jump-cut = حذف الصمت من الفيديو · Custom = مخصص
 
 | op | الاسم | الوصف |
 |---|---|---|
-| trim | قص البداية والنهاية | احتفظ فقط بالجزء بين وقت البداية والنهاية. |
-| channel | ضبط القنوات | أبقِ الصوت ستيريو، أو حوّله إلى أحادي، أو استخدم الجانب الأيسر أو الأيمن فقط. |
-| highpass | إزالة الهدير المنخفض | يزيل الطرقات العميقة واهتزاز المكتب وصوت التكييف. |
+| trim | قص البداية والنهاية | يحتفظ بالجزء المحدد بين وقتَي البداية والنهاية فقط. |
+| channel | ضبط قنوات الصوت | يُبقي الصوت ستيريو، أو يدمجه في قناة واحدة، أو يختار اليسار أو اليمين فقط. |
+| highpass | إزالة الدوي المنخفض | يكتم الأصوات العميقة كخبطات المكتب وهدير التكييف. |
 | dehum | إزالة طنين الكهرباء | يزيل الطنين الثابت (50/60 هرتز) الصادر من الكهرباء والأجهزة. |
-| separate | فصل الصوت عن الموسيقى | احتفظ بالكلام، أو بالموسيقى، أو صدِّر الاثنين. |
-| dereverb | تقليل صدى الغرفة | يخفف الصوت المجوَّف في الغرف الكبيرة أو الفارغة. |
-| denoise | تقليل الضوضاء الخلفية | يخفض الهسهسة وصوت المراوح والشارع وضوضاء الغرفة مع إبقاء الكلام طبيعيًا. |
-| declick | إزالة طقطقة الفم | يزيل أصوات اللعاب وطقطقة الشفاه والخشخشة دون المساس بالحروف. |
-| enhance | تحسين الصوت | يوازن نبرة الصوت، ويخفف حدة حرف السين، ويقلل الرنين المنخفض. |
+| separate | فصل الكلام عن الموسيقى | يحتفظ بصوت المتحدث فقط، أو بالموسيقى فقط، أو يحفظ الاثنين منفصلين. |
+| dereverb | تقليل صدى الغرفة | يخفف صدى الصوت في الغرف الكبيرة أو الفارغة. |
+| denoise | تقليل ضوضاء الخلفية | يخفض الهسهسة وصوت المراوح والشارع وضوضاء الغرفة مع إبقاء الكلام طبيعيًا. |
+| declick | إزالة طقطقة الفم | يقلل أصوات اللعاب وطقطقة الشفاه مع الحفاظ على وضوح الكلام. |
+| enhance | تحسين الصوت | يوازن نبرة الصوت، ويخفف حدة حرف السين، ويقلل الدوي، ويساوي بين الكلمات العالية والمنخفضة. |
 | enhance_ai | إصلاح الصوت التالف | يحاول إعادة بناء الكلام المكتوم أو سيئ التسجيل (تجريبي). |
-| silence | قص الصمت | يحذف أجزاء الصمت ليبقى الكلام فقط (أو يقصِّر الوقفات الطويلة فقط). |
+| silence | حذف الصمت | يحذف أجزاء الصمت ليبقى الكلام فقط (أو يقصِّر الوقفات الطويلة فقط). |
 | speed | تغيير السرعة | أسرع أو أبطأ دون أن تتغير طبقة الصوت. |
-| loudness | توحيد مستوى الصوت | يضبط مستوى استماع ثابتًا (بودكاست −16 / يوتيوب −14) ويمنع التشوه. |
-| subtitles | إنشاء ترجمة نصية | يكتب نصًا مُزامَنًا مع الصوت (SRT/VTT) من الصوت النهائي. |
+| loudness | ضبط مستوى الصوت | يثبّت الصوت عند مستوى مريح للاستماع (بودكاست −16 / يوتيوب −14) ويمنع التشوّه. |
+| subtitles | تفريغ النص | يحوّل الكلام إلى نص متزامن مع الصوت النهائي (ملف SRT/VTT). |
+
+### 12.1 RTL implementation rules (merged review)
+- Mirror the shell: rack on the right, player on the left, rack spine at `inset-inline-start`, History drawer slides from `inline-end`; logical properties only.
+- Flip directional icons (chevrons, back/close arrows) with `scale: -1 1`; never flip transport icons (play/seek), checkmarks, the brand mark or the cut hatch.
+- LTR islands (`dir="ltr"`): waveform, ruler, preview handles, timecodes, playhead progress. Arabic text inside the well (hover labels, announcements) gets its own `dir="rtl"`.
+- Segmented controls (A/B, Process on, presets) live outside LTR islands with `dir="rtl"`: first option rightmost; arrow-key roving focus follows visual order. Keep logical DOM/Tab order; no double reversal.
+- Upload / job / stage progress bars fill right-to-left in Arabic; playback progress stays left-to-right.
+- Numbers: Western digits (`Intl.NumberFormat('ar-u-nu-latn')`), tabular. Signed values with units (`−23.4 LUFS`, `−1 dBTP`, `48 kHz`) wrapped in `<bdi dir="ltr">`. Filenames in `<bdi dir="auto">`, separators (` · `) outside the isolate.
+- Shortcuts listen to `event.code` (`KeyA`, `KeyB`, `KeyP`, `BracketLeft`, `BracketRight`, `Space`) so they work on the Arabic keyboard layout; hints show both ("A / ش"). Ignore while typing / IME composition.
+- Switching language keeps focus, playback position and all settings; no reload.
+- Typography `[lang="ar"]`: IBM Plex Sans Arabic before Inter; `letter-spacing: 0`; `--fs-small` 13px; body/descriptions line-height 1.6; controls, pills and titles 1.35–1.4; `-webkit-font-smoothing: antialiased`; technical readouts keep Inter tabular digits; controls ≥ 40px tall and allowed to wrap.
