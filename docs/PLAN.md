@@ -16,7 +16,7 @@ Each milestone gets a detailed task plan in `docs/superpowers/plans/` written ri
 | M6b | **Reduce breaths** (frame-level detector, −12 dB attenuation) + silence padding fix — design: docs/brainstorm/argon_breath.md | consonant-safety + synthetic + real-recording metrics |
 | M7 | **Separation** (dereverb moved to M6): audio-separator (htdemucs default, MDX option), vocals/instrumental/both, OOM → CPU, download progress | music energy reduced in vocals stem; peak VRAM < 3 GB; CPU path works |
 | M8 | **Subtitles & preview**: faster-whisper SRT/VTT mapped through timeline; preview job for 15–30 s region | SAPI fixture transcribed with recognizable words; preview returns audio |
-| M9a | **UI core** (+ Arabic/RTL per SPEC §11 + UI_DESIGN §12, Process-on device control): upload, media inspector, presets, op cards in effective order with params + conflict hints, progress stepper + cancel, downloads, history | browser walkthrough passes (webapp-testing) |
+| M9a | **UI core** (+ Arabic/RTL per SPEC §11 + UI_DESIGN §12, Process-on device control, save location per SPEC §12 + UI_DESIGN §13): upload, media inspector, presets, op cards in effective order with params + conflict hints, progress stepper + cancel, downloads, history | browser walkthrough passes (webapp-testing) |
 | M9b | **UI waveform & A/B**: wavesurfer peaks, preview region, A/B toggle (Tab) with playhead translation, video sync, cut regions | browser walkthrough + design review passes |
 | M10 | **Hardening**: retention cleanup, disk check, `prefetch_models.py`, offline check, README, final UI polish review | fresh `start.bat` works; offline run works |
 

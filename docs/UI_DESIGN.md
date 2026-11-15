@@ -238,3 +238,8 @@ Presets: Podcast cleanup = تنقية البودكاست · Remove background mu
 - Shortcuts listen to `event.code` (`KeyA`, `KeyB`, `KeyP`, `BracketLeft`, `BracketRight`, `Space`) so they work on the Arabic keyboard layout; hints show both ("A / ش"). Ignore while typing / IME composition.
 - Switching language keeps focus, playback position and all settings; no reload.
 - Typography `[lang="ar"]`: IBM Plex Sans Arabic before Inter; `letter-spacing: 0`; `--fs-small` 13px; body/descriptions line-height 1.6; controls, pills and titles 1.35–1.4; `-webkit-font-smoothing: antialiased`; technical readouts keep Inter tabular digits; controls ≥ 40px tall and allowed to wrap.
+
+## 13. Saving outputs (SPEC §12)
+- Done dock: the primary button reads "Save MP4…" / "Save WAV…" (ellipsis = a dialog opens); secondary pills the same for other files. After a save: neutral pill "Saved" + "Show in folder" text button.
+- Settings (gear in the top bar, opens a small popover): "Save results" — radio "Ask every time" (default) / "Always save to" + folder path (bdi, middle-truncated) + "Change…" button + "Show in folder". Errors inline: "This folder can't be used. Choose another one."
+- Arabic: Save… = "حفظ…" · Ask every time = "اسأل في كل مرة" · Always save to = "احفظ دائمًا في" · Change… = "تغيير…" · Show in folder = "إظهار في المجلد" · Saved = "تم الحفظ" · output_dir_invalid = "لا يمكن استخدام هذا المجلد. اختر مجلدًا آخر."
