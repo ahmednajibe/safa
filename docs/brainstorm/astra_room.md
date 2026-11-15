@@ -1,0 +1,20 @@
+﻿I’m using brainstorming and systematic debugging to assess the hypothesis and compare speech-focused options against your Windows stack.
+I found two issues in the experiment scripts: the DFN “floor” is a 20th percentile, which can include speech, and the separator outputs are 44.1 kHz but are passed directly to DFN’s 48 kHz model. The dereverb-only outputs are still very close to the original after gain matching, so the small-room hypothesis remains plausible, but those comparisons don’t establish it.
+- **1. Plausible, not established.** Early reflections, comb filtering, microphone coloration, and laptop processing can all cause hollowness. Tiny reverb stems demonstrate little removal, not which reflections the models target. Two experimental confounders: the DFN script’s “floor” is a percentile, not verified silence; measured separator outputs are **44.1 kHz**, passed directly into **48 kHz DFN**. [try_dereverb.py:61-67](file:///F:/sound_system/.orchestrator/analysis/try_dereverb.py)
+
+  **Practical NumPy/SciPy metric:** octave-band decay after verified speech offsets. Compute 10-ms mean-square energies `E`, estimate stationary noise power `N`, then `m=linregress(t,10*np.log10(E-N)).slope`; report `T60_proxy=-60/m`. Accept only negative slopes, substantial decay, high fit quality, and energies clearly above noise. Aggregate across pauses/bands; otherwise return “insufficient evidence.” This measures **tail decay**, not early-reflection strength. Blind DRR/C50 require learned/statistical assumptions; spectral flatness and modulation spectra also confound room, voice, and fan.
+
+- **2. Ranked by practicality on your machine.** Offline after caching weights; resource expectations below are unbenchmarked unless stated.
+
+  1. **[nara_wpe](https://github.com/fgnt/nara_wpe):** low installation risk; NumPy path avoids Torch/TensorFlow conflicts. Fast CPU, zero VRAM. Useful for late reverb; weak against earliest reflections, especially noisy mono. MIT.
+  2. **[VoiceFixer](https://github.com/haoheliu/voicefixer):** moderate legacy-dependency risk; pins broadly compatible. Can remove coloration/reverb, but vocoder changes timbre. Slow CPU; try short GPU chunks, 4-GB fit unverified. MIT code; [CC-BY-4.0 weights](https://zenodo.org/records/5600188).
+  3. **[Resemble Enhance](https://github.com/resemble-ai/resemble-enhance):** promising restoration, possible voice alteration. High Windows risk: DeepSpeed and released Torch-2.1.1 pins conflict. Isolate/port inference. Slow CPU; 4 GB risky, shorten chunks. MIT.
+  4. **[SGMSE+](https://github.com/sp-uhh/sgmse)/[StoRM](https://github.com/sp-uhh/storm):** dedicated speech-dereverb checkpoints; promising quality, unproven here. High risk: CUDA compilation; StoRM’s old pins conflict with Py3.11. SGMSE supports Py3.11. Iterative inference slow; 4-GB chunking/CPU adaptation needs validation. MIT code; checkpoint terms unverified.
+  5. **[Unofficial Miipher](https://github.com/Wataru-Nakata/miipher):** high dependency risk; tested on Py3.10. Heavy reconstruction pipeline, poor 4-GB candidate; quality/language generalization uncertain. MIT code, CC-BY-NC-2.0 weights.
+  6. **[DFN variants](https://github.com/Rikorose/DeepFilterNet):** already viable, fast; your feasibility measured 106-MB GPU delta. Some dereverb training, limited evidence for this coloration. MIT/Apache-2.0.
+
+- **3. Cheap DSP:** smooth speech-frame log spectra; find persistent 150–800-Hz peaks above a broad spectral baseline. Apply at most 2–3 shallow parametric cuts, −2 to −4 dB, Q≈2–5. Reject moving pitch harmonics/formants; never boost cancellation nulls. EQ reduces boxiness, not reflections.
+
+- **4. Recommendation:** optional conservative WPE plus separate boxiness control; audition VoiceFixer mode 0 for stronger restoration. For this fan-heavy memo, trial **mild DFN → WPE → EQ → loudness**, against WPE→DFN at matched loudness. Require audible benefit and preserved voice identity.
+
+- **Report:** read-only inspection and in-memory WAV measurements via `uv run --offline --no-sync python -B`; no edits/installations or pytest run.
