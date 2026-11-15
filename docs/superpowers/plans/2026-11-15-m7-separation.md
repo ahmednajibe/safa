@@ -32,3 +32,7 @@
 3. Video: vocals/instrumental on video keeps `-c:v copy` (identity timeline) — e2e test with clip.mp4.
 4. Review files (`scripts/make_review_files.py`): each real recording + synthetic music bed at −10 dB → `data/review/m7_<stem>_with_music.wav`, `m7_<stem>_voice.wav`, `m7_<stem>_music.wav`; report SI-SDR where ground truth exists and seconds per device.
 - [ ] `uv run pytest -m "not slow"` passes; slow tests run once.
+
+## Carried into R1 (orchestrator review of M7)
+- Intermittent Demucs LF rumble (bistable per process, ~40 repro attempts by SWE). Suspect Demucs `shifts` > 0 (random time shifts in apply_model) and/or non-deterministic cuDNN; test with `shifts=0/1` fixed seed, compare N runs, keep the deterministic setting if quality holds.
+- `separate.requires_models` gates on BOTH models; should require only the selected model (+ shared metadata JSONs).
