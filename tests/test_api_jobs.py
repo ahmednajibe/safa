@@ -120,10 +120,10 @@ def test_post_job_disabled_ops_reported(tmp_path):
     """Planned/conflicted ops are dropped and returned in 'disabled'."""
     c = _client(tmp_path)
     mid = _upload(c, ARABIC_WAV)
-    r = _post_job(c, mid, ops={"dereverb": {}})
+    r = _post_job(c, mid, ops={"enhance_ai": {}})
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["disabled"].get("dereverb")
+    assert body["disabled"].get("enhance_ai")
     assert body["ops"] == []
 
 
@@ -139,13 +139,13 @@ def test_post_job_karaoke_conflict_disables_denoise(tmp_path):
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    # M4c: separate and denoise are available but have no runner yet —
-    # they land in ``disabled`` instead of crashing the worker, so the
-    # karaoke conflict never fires. The conflict rule itself is covered
-    # in test_operations via resolve(implemented=all).
-    assert "denoise" in body["disabled"]
+    # separate is available but has no runner yet — it lands in
+    # ``disabled`` instead of crashing the worker, so the karaoke conflict
+    # never fires and denoise (implemented, M6) stays on. The conflict
+    # rule itself is covered in test_operations via resolve(implemented=all).
     assert "separate" in body["disabled"]
-    assert body["ops"] == []
+    assert "denoise" not in body["disabled"]
+    assert [op["id"] for op in body["ops"]] == ["denoise"]
 
 
 def test_post_job_gpu_unavailable(tmp_path, monkeypatch):

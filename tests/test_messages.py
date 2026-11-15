@@ -213,8 +213,9 @@ def test_operations_carry_unavailable_code(tmp_path):
     for op in ops:
         assert "unavailable_code" in op
     by_id = {o["id"]: o for o in ops}
-    assert by_id["dereverb"]["unavailable_code"] == "planned"
     assert by_id["enhance_ai"]["unavailable_code"] == "planned"
+    assert by_id["dereverb"]["unavailable_code"] is None  # implemented M6
+    assert by_id["denoise"]["unavailable_code"] is None  # implemented M6
     assert by_id["silence"]["unavailable_code"] is None
 
 
@@ -280,11 +281,11 @@ def test_disabled_ops_reported_with_codes(tmp_path):
     c = _client(tmp_path)
     mid = _upload(c, SPEECH)
     r = c.post("/api/jobs", json={
-        "media_id": mid, "device": "cpu", "ops": {"dereverb": {}},
+        "media_id": mid, "device": "cpu", "ops": {"enhance_ai": {}},
     })
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["disabled"]["dereverb"]["code"] == "planned"
+    assert body["disabled"]["enhance_ai"]["code"] == "planned"
     # dropped ops also recorded as a job warning
     assert any(
         w["warning_code"] == "preset_partial" for w in body["warnings"]

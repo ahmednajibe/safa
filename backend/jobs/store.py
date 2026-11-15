@@ -42,7 +42,9 @@ def _norm_ops(ops) -> list[dict]:
 
 
 def _expected_stages(ops, job_device: str) -> list[dict]:
-    """One ``{id,name,device,fallback_reason}`` per resolved op (SPEC §9)."""
+    """One ``{id,name,device,fallback_reason,state}`` per resolved op
+    (SPEC §9); ``state`` runs pending → running → done/failed (M6 Task 0 —
+    the worker writes the full result record when the op finishes)."""
     caps = detect_capabilities()
     stages = []
     for op in _norm_ops(ops):
@@ -55,6 +57,7 @@ def _expected_stages(ops, job_device: str) -> list[dict]:
                     job_device, op["id"], op["params"], caps
                 ),
                 "fallback_reason": None,
+                "state": "pending",
             }
         )
     return stages
@@ -255,6 +258,39 @@ class JobStore:
                 if s.get("id") == stage_id:
                     s["device"] = device
                     s["fallback_reason"] = fallback_reason
+            con.execute(
+                "UPDATE jobs SET stages_json=? WHERE id=?",
+                (json.dumps(stages), job_id),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+    def update_stage(self, job_id: str, stage_id: str, **fields) -> None:
+        """Merge ``fields`` into one stage's ``stages_json`` entry.
+
+        M6 Task 0: the worker calls this as a stage moves
+        pending → running → done/failed; the done record carries
+        ``actual_device``, ``fallback_reason``, ``message_code``,
+        ``message_params``, ``warning_code``, ``warning_params`` and wall
+        ``seconds`` so op summaries survive job completion (and SSE
+        reconnects) deterministically.
+        """
+        con = self._con()
+        try:
+            row = con.execute(
+                "SELECT stages_json FROM jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            if not row:
+                return
+            stages = json.loads(row["stages_json"] or "[]")
+            changed = False
+            for s in stages:
+                if s.get("id") == stage_id:
+                    s.update(fields)
+                    changed = True
+            if not changed:
+                return
             con.execute(
                 "UPDATE jobs SET stages_json=? WHERE id=?",
                 (json.dumps(stages), job_id),

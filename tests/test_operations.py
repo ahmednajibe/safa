@@ -39,13 +39,14 @@ def test_fourteen_ops_in_order():
     assert len(OPERATIONS) == 14
     ids = [op.id for op in ops_in_order()]
     assert ids == [
-        "trim", "channel", "highpass", "dehum", "separate", "dereverb",
-        "declick", "denoise", "enhance", "enhance_ai", "silence",
+        "trim", "channel", "highpass", "dehum", "separate", "declick",
+        "denoise", "dereverb", "enhance", "enhance_ai", "silence",
         "speed", "loudness", "subtitles",
     ]
     orders = [op.order for op in ops_in_order()]
     assert orders == sorted(orders)
-    assert OPERATIONS["declick"].order == 38  # after dereverb, before denoise (M4c)
+    assert OPERATIONS["declick"].order == 38  # between dehum and denoise (M4c)
+    assert OPERATIONS["dereverb"].order == 42  # after denoise, before enhance (M6)
     assert OPERATIONS["highpass"].params[0].default == 90
 
 
@@ -237,12 +238,13 @@ def test_resolve_disables_unimplemented_ops():
     eff = resolve(PRESETS["podcast"]["ops"], _all_available())
     ids = {op_id for op_id, _ in eff.ops}
     assert ids <= set(IMPLEMENTATIONS)
-    assert "denoise" in eff.disabled
-    assert eff.disabled["denoise"]["code"] == "not_implemented"
+    assert "denoise" in ids  # implemented in M6
+    assert "dereverb" in ids  # implemented in M6
     assert "silence" in ids  # implemented in M5
     # the runnable part keeps the new effective order
     assert [op_id for op_id, _ in eff.ops] == [
-        "highpass", "dehum", "declick", "enhance", "silence", "loudness"
+        "highpass", "dehum", "declick", "denoise", "dereverb",
+        "enhance", "silence", "loudness"
     ]
     # explicit opt-in to an unimplemented op gets the same graceful path
     eff2 = resolve({"separate": {}, "loudness": {}}, _all_available(),
@@ -250,8 +252,8 @@ def test_resolve_disables_unimplemented_ops():
     assert [op_id for op_id, _ in eff2.ops] == ["loudness"]
     assert eff2.disabled["separate"]["code"] == "not_implemented"
     # planned ops keep their own reason
-    eff3 = resolve({"dereverb": {}}, _all_available(), {"dereverb"})
-    assert eff3.disabled["dereverb"]["code"] == "planned"
+    eff3 = resolve({"enhance_ai": {}}, _all_available(), {"enhance_ai"})
+    assert eff3.disabled["enhance_ai"]["code"] == "planned"
 
 
 # ---- API --------------------------------------------------------------------
@@ -277,7 +279,7 @@ def test_operations_availability_on_this_machine(tmp_path):
     """All non-planned ops available here; planned ones report 'planned'."""
     ops = {o["id"]: o for o in _client(tmp_path).get("/api/operations").json()["operations"]}
     for op_id, op in ops.items():
-        if op_id in ("dereverb", "enhance_ai"):
+        if op_id in ("enhance_ai",):
             assert op["available"] is False
             assert op["unavailable_code"] == "planned"
         else:
@@ -329,11 +331,13 @@ def test_resolve_endpoint_karaoke(tmp_path):
     )
     assert r.status_code == 200
     body = r.json()
-    # separate/denoise have no implementation yet → disabled with
-    # "not_implemented"; silence is implemented (M5) and the karaoke
+    # separate has no implementation yet → disabled with "not_implemented";
+    # denoise/silence/enhance are implemented (M5/M6) and the karaoke
     # conflict can't fire while separate itself doesn't run.
-    assert [o["id"] for o in body["ops"]] == ["enhance", "silence"]
-    assert set(body["disabled"]) == {"separate", "denoise"}
+    assert [o["id"] for o in body["ops"]] == [
+        "denoise", "enhance", "silence"
+    ]
+    assert set(body["disabled"]) == {"separate"}
     assert body["disabled"]["separate"]["code"] == "not_implemented"
 
 

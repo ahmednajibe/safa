@@ -23,6 +23,10 @@ MESSAGES: dict[str, str] = {
     "very_quiet_raised": (
         "Very quiet recording — raised as far as safely possible"
     ),
+    "noise_reduced": "Cut background noise by about {db} dB",
+    "room_resonances_cut": (
+        "Reduced room echo: cut resonances at {freqs} Hz"
+    ),
     # device fallbacks / warnings (SPEC §9)
     "gpu_fallback": (
         "Graphics memory ran out. Running this step on the processor"

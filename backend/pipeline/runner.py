@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -97,6 +98,8 @@ def run_pipeline(
             device: str | None = None,
             warning_code: str | None = None,
             warning_params: dict | None = None,
+            stage_seconds: float | None = None,
+            fallback_reason: str | None = None,
         ) -> None:
             on_progress(
                 Progress(
@@ -113,6 +116,8 @@ def run_pipeline(
                     message_params=message_params,
                     warning_code=warning_code,
                     warning_params=warning_params,
+                    stage_seconds=stage_seconds,
+                    fallback_reason=fallback_reason,
                 )
             )
 
@@ -168,6 +173,7 @@ def run_pipeline(
             fn = IMPLEMENTATIONS.get(op_id)
             if fn is None:
                 _not_impl(op_id)
+            t0 = time.monotonic()
             prev = current["wav"]
             info = sf.info(prev)
             ctx = OpContext(
@@ -204,6 +210,8 @@ def run_pipeline(
                 result.actual_device,
                 warning_code=warning_code,
                 warning_params=warning_params,
+                stage_seconds=time.monotonic() - t0,
+                fallback_reason=result.fallback_reason,
             )
             if prev != out_wav and prev.parent == work:
                 prev.unlink(missing_ok=True)  # previous intermediate dies

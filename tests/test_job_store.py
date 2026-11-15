@@ -73,12 +73,14 @@ def test_create_get_roundtrip(store, db_path):
     assert got.retry_of is None
     assert got.created_at
     # snapshot stages: one entry per resolved op with an expected device
+    # (M6: entries start "pending"; the worker writes the done record)
     assert got.stages == [
         {
             "id": "loudness",
             "name": "Even out volume",
             "device": "cpu",
             "fallback_reason": None,
+            "state": "pending",
         }
     ]
     d = got.to_dict()

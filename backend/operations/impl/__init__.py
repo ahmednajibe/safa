@@ -21,8 +21,8 @@ def _register(op_id: str, module: str) -> None:
 
 
 for _op_id in (
-    "channel", "highpass", "dehum", "declick", "enhance", "loudness",
-    "trim", "speed", "silence",
+    "channel", "highpass", "dehum", "declick", "denoise", "dereverb",
+    "enhance", "loudness", "trim", "speed", "silence",
 ):
     _register(_op_id, f"{__name__}.{_op_id}")
 

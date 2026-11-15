@@ -111,13 +111,22 @@ OPERATIONS: dict[str, OpSpec] = {
         ],
     ),
     "dereverb": OpSpec(
-        id="dereverb", order=35,
+        id="dereverb", order=42,
         name="Reduce room echo",
         description="Dries up the hollow sound of big or bare rooms.",
-        engine="audio-separator", device="gpu-optional", planned=True,
+        engine="wpe + scipy/pedalboard", device="cpu",
+        requires_modules=["pedalboard"],
         params=[
-            ParamSpec("strength", "Strength", "number", 0.5,
-                      min=0, max=1, step=0.05, advanced=True),
+            ParamSpec("strength", "Strength", "select", "normal",
+                      options=_opts(
+                          ("gentle", "Gentle"), ("normal", "Normal"),
+                          ("strong", "Strong"),
+                      )),
+            ParamSpec("wpe", "Dereverb (WPE)", "select", "on",
+                      options=_opts(
+                          ("off", "Off"), ("on", "Light"),
+                          ("strong", "Strong"),
+                      ), advanced=True),
         ],
     ),
     "denoise": OpSpec(
@@ -255,7 +264,8 @@ PRESETS: dict[str, dict] = {
             "highpass": {},
             "dehum": {},
             "declick": {"mode": "mouth"},
-            "denoise": {"engine": "ai", "strength_db": 12},
+            "denoise": {"engine": "ai", "strength_db": 24},
+            "dereverb": {"strength": "gentle"},
             "enhance": {},
             "silence": {"action": "remove"},
             "loudness": {"target": "podcast"},
@@ -272,8 +282,8 @@ PRESETS: dict[str, dict] = {
     "echoey_room": {
         "name": "Fix echoey room",
         "ops": {
-            "dereverb": {},
-            "denoise": {},
+            "denoise": {"strength_db": 24},
+            "dereverb": {"strength": "strong"},
             "enhance": {},
             "loudness": {},
         },
@@ -284,7 +294,8 @@ PRESETS: dict[str, dict] = {
             "highpass": {},
             "dehum": {},
             "declick": {"mode": "mouth"},
-            "denoise": {"engine": "ai", "strength_db": 12},
+            "denoise": {"engine": "ai", "strength_db": 24},
+            "dereverb": {"strength": "gentle"},
             "enhance": {},
             "silence": {"action": "remove"},
             "loudness": {},
@@ -302,7 +313,8 @@ PRESETS: dict[str, dict] = {
         "name": "Video jump-cut",
         "ops": {
             "declick": {"mode": "mouth"},
-            "denoise": {"engine": "ai", "strength_db": 12},
+            "denoise": {"engine": "ai", "strength_db": 24},
+            "dereverb": {"strength": "gentle"},
             "enhance": {},
             "silence": {"action": "remove"},
             "loudness": {"target": "youtube"},

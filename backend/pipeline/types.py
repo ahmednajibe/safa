@@ -39,6 +39,11 @@ class Progress:
     message_params: dict | None = None
     warning_code: str | None = None
     warning_params: dict | None = None
+    # M6 Task 0: set only on an op stage's closing row — wall seconds and
+    # the op's own fallback reason (distinct from the gpu_fallback warning
+    # the runner derives) so the worker can persist the stage record.
+    stage_seconds: float | None = None
+    fallback_reason: str | None = None
 
 
 ProgressCb = Callable[[Progress], None]

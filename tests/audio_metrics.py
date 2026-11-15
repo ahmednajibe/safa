@@ -77,6 +77,36 @@ def quiet_band_share_db(
     return float(10 * np.log10(spec[(fr >= lo) & (fr < hi)].sum() / tot))
 
 
+def srmr_proxy(x: np.ndarray, sr: int) -> float:
+    """SRMR proxy (try_wpe.py port): 2-8 Hz vs 16-40 Hz envelope-modulation
+    energy of the 300-4000 Hz band, in dB. Reverberation smears the
+    envelope and shifts energy to fast modulation — lower is more
+    reverberant."""
+    b = signal.butter(4, [300, 4000], btype="band", fs=sr, output="sos")
+    v = signal.sosfiltfilt(b, x)
+    n = int(sr * 0.01)
+    k = len(v) // n
+    if k == 0:
+        return 0.0
+    env = 10 * np.log10((v[: k * n].reshape(k, n) ** 2).mean(1) + 1e-12)
+    fe, Pe = signal.welch(env - env.mean(), fs=100, nperseg=256)
+    lo = Pe[(fe >= 2) & (fe <= 8)].sum()
+    hi = Pe[(fe >= 16) & (fe <= 40)].sum()
+    return float(10 * np.log10(lo / (hi + 1e-20)))
+
+
+def ltas_ripple_db(
+    x: np.ndarray, sr: int, fmin: float = 220.0, fmax: float = 1000.0
+) -> float:
+    """RMS ripple of the long-term spectrum over its median baseline in
+    [fmin,fmax] Hz (try_wpe.py port) — comb/resonance structure raises it."""
+    f, P = signal.welch(x, fs=sr, nperseg=4096)
+    db = 10 * np.log10(P + 1e-20)
+    band = (f >= fmin) & (f <= fmax)
+    resid = db - ndimage.median_filter(db, size=15)
+    return float(np.sqrt((resid[band] ** 2).mean()))
+
+
 def speech_band_ratio_db(
     x: np.ndarray, sr: int,
     band_lo: tuple[float, float] = (80.0, 200.0),

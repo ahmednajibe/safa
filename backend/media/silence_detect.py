@@ -188,3 +188,60 @@ def speech_intervals_amplitude(
         speech.append((pos, duration))
     emit(1.0)
     return _merge(speech)
+
+
+def non_speech_dbfs(
+    wav: Path,
+    intervals: list[tuple[float, float]] | None = None,
+    report: ReportFn = None,
+    should_cancel: CancelFn = None,
+) -> float:
+    """RMS level (dBFS) of the audio *outside* detected speech — the fan /
+    room-noise floor a denoiser should lower
+    (``.orchestrator/analysis/nonspeech.py``).
+
+    Silero-VAD speech intervals on a 16 kHz mono copy; the mask is applied
+    to the 48 kHz mono mix streamed in blocks (bounded RAM). ``nan`` when
+    nothing is non-speech — there is no floor to measure.
+    """
+    if intervals is None:
+        intervals = speech_intervals_vad(
+            wav,
+            report=lambda p: (report or (lambda q: None))(0.9 * p),
+            should_cancel=should_cancel,
+        )
+    info = sf.info(str(wav))
+    sr, n = info.samplerate, info.frames
+    bounds = [(int(a * sr), int(b * sr)) for a, b in intervals]
+    sumsq = 0.0
+    count = 0
+    idx = 0  # interval pointer — bounds are sorted
+    with sf.SoundFile(str(wav), "r") as fin:
+        pos = 0
+        while pos < n:
+            _cancel(should_cancel)
+            block = fin.read(
+                min(_BLOCK, n - pos), dtype="float32", always_2d=True
+            )
+            if len(block) == 0:
+                break
+            mask = np.ones(len(block), dtype=bool)
+            while idx < len(bounds) and bounds[idx][1] <= pos:
+                idx += 1
+            j = idx
+            while j < len(bounds) and bounds[j][0] < pos + len(block):
+                a = max(bounds[j][0] - pos, 0)
+                b = min(bounds[j][1] - pos, len(block))
+                if b > a:
+                    mask[a:b] = False
+                j += 1
+            mono = block.mean(axis=1)
+            ns = mono[mask]
+            sumsq += float((ns * ns).sum())
+            count += int(mask.sum())
+            pos += len(block)
+    if report:
+        report(1.0)
+    if count == 0:
+        return float("nan")
+    return float(10.0 * np.log10(sumsq / count + 1e-20))

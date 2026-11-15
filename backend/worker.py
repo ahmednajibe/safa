@@ -159,9 +159,12 @@ def main(argv: list[str]) -> int:
             else None
         )
 
-        # Per-stage actual device bookkeeping (SPEC §9): the snapshot holds
-        # the expected device; a stage reporting another one is a fallback —
-        # persist it with the progress message as the reason.
+        # Per-stage bookkeeping (SPEC §9 device, M6 Task 0 result record):
+        # the snapshot holds the expected device; a stage reporting another
+        # one is a fallback — persist it with the progress message as the
+        # reason. A stage's closing Progress row (pct 1.0 / stage_seconds
+        # set) writes the full done record into stages_json so op summaries
+        # survive the job.
         stage_by_name = {s.get("name"): s for s in job.stages}
 
         def _on_progress(p: Progress) -> None:
@@ -171,13 +174,34 @@ def main(argv: list[str]) -> int:
                     store.add_warning(
                         job_id, p.warning_code, p.warning_params
                     )
-                if p.device:
-                    entry = stage_by_name.get(p.stage)
-                    if entry and entry.get("device") != p.device:
-                        store.set_stage_device(
-                            job_id, entry["id"], p.device, p.message
-                        )
-                        entry["device"] = p.device
+                entry = stage_by_name.get(p.stage)
+                if entry is None:
+                    return
+                if p.device and entry.get("device") != p.device:
+                    store.set_stage_device(
+                        job_id, entry["id"], p.device, p.message
+                    )
+                    entry["device"] = p.device
+                if entry.get("state") == "pending":
+                    store.update_stage(job_id, entry["id"], state="running")
+                    entry["state"] = "running"
+                if (
+                    p.stage_seconds is not None
+                    or (p.stage_pct or 0.0) >= 1.0
+                ):
+                    store.update_stage(
+                        job_id,
+                        entry["id"],
+                        state="done",
+                        actual_device=p.device or entry.get("device"),
+                        fallback_reason=p.fallback_reason,
+                        message_code=p.message_code,
+                        message_params=p.message_params,
+                        warning_code=p.warning_code,
+                        warning_params=p.warning_params,
+                        seconds=p.stage_seconds or 0.0,
+                    )
+                    entry["state"] = "done"
             except Exception:
                 pass  # progress bookkeeping must never kill a job
 
@@ -227,6 +251,8 @@ def main(argv: list[str]) -> int:
                     if s.get("name") == cur.stage:
                         failed_op = s.get("id")
                         break
+            if failed_op:
+                store.update_stage(job_id, failed_op, state="failed")
         except Exception:
             pass
         store.finish(
