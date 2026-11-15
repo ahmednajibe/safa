@@ -139,13 +139,13 @@ def test_post_job_karaoke_conflict_disables_denoise(tmp_path):
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    # separate is available but has no runner yet — it lands in
-    # ``disabled`` instead of crashing the worker, so the karaoke conflict
-    # never fires and denoise (implemented, M6) stays on. The conflict
-    # rule itself is covered in test_operations via resolve(implemented=all).
-    assert "separate" in body["disabled"]
-    assert "denoise" not in body["disabled"]
-    assert [op["id"] for op in body["ops"]] == ["denoise"]
+    # separate is implemented (M7), so the karaoke conflict fires and
+    # denoise — a speech op — is disabled with ``separate`` as blocker.
+    assert "separate" not in body["disabled"]
+    denoise = body["disabled"]["denoise"]
+    assert denoise["code"] == "karaoke_speech_op"
+    assert denoise["blocker_op_id"] == "separate"
+    assert [op["id"] for op in body["ops"]] == ["separate"]
 
 
 def test_post_job_gpu_unavailable(tmp_path, monkeypatch):

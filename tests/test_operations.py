@@ -332,14 +332,11 @@ def test_resolve_endpoint_karaoke(tmp_path):
     )
     assert r.status_code == 200
     body = r.json()
-    # separate has no implementation yet → disabled with "not_implemented";
-    # denoise/silence/enhance are implemented (M5/M6) and the karaoke
-    # conflict can't fire while separate itself doesn't run.
-    assert [o["id"] for o in body["ops"]] == [
-        "denoise", "enhance", "silence"
-    ]
-    assert set(body["disabled"]) == {"separate"}
-    assert body["disabled"]["separate"]["code"] == "not_implemented"
+    # M7: separate is implemented — the karaoke conflict disables every
+    # speech-centric op selected with it (denoise/enhance/silence-vad).
+    assert [o["id"] for o in body["ops"]] == ["separate"]
+    assert set(body["disabled"]) == {"denoise", "enhance", "silence"}
+    assert body["disabled"]["denoise"]["code"] == "karaoke_speech_op"
 
 
 def test_resolve_endpoint_422(tmp_path):

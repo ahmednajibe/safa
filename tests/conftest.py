@@ -15,7 +15,10 @@ REAL_DIR = ROOT / "tests" / "fixtures" / "real"
 @pytest.fixture(scope="session", autouse=True)
 def generated_fixtures():
     """Ensure the M1 generated fixtures exist (cheap no-op when present)."""
-    if not (FIXTURES_DIR / "fixtures.json").exists():
+    if (
+        not (FIXTURES_DIR / "fixtures.json").exists()
+        or not (FIXTURES_DIR / "sep_mix.wav").exists()
+    ):
         import make_fixtures
 
         make_fixtures.main()

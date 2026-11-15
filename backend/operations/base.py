@@ -39,6 +39,12 @@ class OpContext:
     # Timeline so far (source time → current output time); None means
     # identity. Length-changing ops return the composed map in OpResult.
     timeline: Timeline | None = None
+    # Job output dir + requested audio format + sanitized display stem —
+    # ops emitting extra encoded outputs (separate "both" stems) write
+    # here so files survive the runner's work/ cleanup (M7).
+    out_dir: Path | None = None
+    audio_format: str = "wav"
+    display_stem: str | None = None
 
 
 @dataclass

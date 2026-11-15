@@ -17,11 +17,20 @@ report per recording: detected breath timestamps, measured dB drop over
 the detected spans, and the faster-whisper transcript diff input vs
 breaths-op output.
 
+``--m7`` adds the separation files: each real recording is mixed with
+the synthetic music bed at −10 dB SMR and run through
+``separator.process_file`` on the job device —
+  - ``m7_<stem>_with_music.wav``   (the mix fed to the engine)
+  - ``m7_<stem>_voice.wav``        (voice stem)
+  - ``m7_<stem>_music.wav``        (music stem)
+plus SI-SDR of each stem against its ground truth (the recording is the
+voice reference; the bed is the music reference) and seconds/device.
+
 ``--m5`` also regenerates the M5 files:
   - ``m5_<recording stem>_cut.wav`` per real recording (silence defaults)
   - ``m5_jumpcut.mp4`` (testsrc video + speech_silences.wav, keep_video)
 
-Run:  uv run python scripts/make_review_files.py [--m5]
+Run:  uv run python scripts/make_review_files.py [--m5] [--m7]
 """
 from __future__ import annotations
 
@@ -379,6 +388,87 @@ def _m6b_report(rows: list[dict]) -> None:
             print(f"    out: {r['t_out']}")
 
 
+# ---- M7: separation review files -----------------------------------------------
+
+
+def _m7_one(rec: Path, tmp: Path, device: str) -> dict:
+    """Mix one recording with the fixture music bed at −10 dB SMR and
+    separate it on ``device``. Ground truth exists for BOTH stems here:
+    the recording is the voice reference, the bed the music reference."""
+    import time as _time
+
+    import soundfile as sf
+
+    from backend.media import separator
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from make_fixtures import _synth_sep_music
+
+    from tests.audio_metrics import si_sdr_db_multi
+
+    stem = rec.stem.replace(" ", "_")
+    p = probe(rec)
+    in_wav = tmp / f"{stem}_m7_in.wav"
+    decode_to_wav(rec, in_wav, p.audio[0].index)
+    x, sr = sf.read(str(in_wav), dtype="float32", always_2d=True)
+
+    bed = _synth_sep_music(len(x))
+    x_rms = float(np.sqrt((x ** 2).mean()))
+    g = x_rms * (10.0 ** (-10.0 / 20.0)) / (
+        float(np.sqrt((bed ** 2).mean())) + 1e-9
+    )
+    music_ref = (bed * g).astype(np.float32)
+    mix = x + music_ref
+    peak = float(np.abs(mix).max())
+    k = 0.95 / peak if peak > 0.95 else 1.0
+    mix = (mix * k).astype(np.float32)
+    music_ref = (music_ref * k).astype(np.float32)
+    voice_ref = (x * k).astype(np.float32)
+
+    dst_mix = REVIEW / f"m7_{rec.stem}_with_music.wav"
+    sf.write(str(dst_mix), mix, sr, subtype="FLOAT")
+    mix_path = tmp / f"{stem}_m7_mix.wav"
+    sf.write(str(mix_path), mix, sr, subtype="FLOAT")
+
+    v_tmp, m_tmp = tmp / f"{stem}_v.wav", tmp / f"{stem}_m.wav"
+    t0 = _time.monotonic()
+    used = separator.process_file(
+        mix_path, v_tmp, m_tmp,
+        model="htdemucs", device=device, work_dir=tmp / f"{stem}_w",
+    )
+    seconds = _time.monotonic() - t0
+    dst_v = REVIEW / f"m7_{rec.stem}_voice.wav"
+    dst_m = REVIEW / f"m7_{rec.stem}_music.wav"
+    shutil.copy2(v_tmp, dst_v)
+    shutil.copy2(m_tmp, dst_m)
+
+    v, _ = sf.read(str(dst_v), dtype="float32", always_2d=True)
+    m, _ = sf.read(str(dst_m), dtype="float32", always_2d=True)
+    return {
+        "stem": rec.stem,
+        "dur_s": p.duration_s,
+        "seconds": seconds,
+        "device": used,
+        "voice_si_sdr": si_sdr_db_multi(v, voice_ref),
+        "music_si_sdr": si_sdr_db_multi(m, music_ref),
+        "mix_voice_si_sdr": si_sdr_db_multi(mix, voice_ref),
+        "mix_music_si_sdr": si_sdr_db_multi(mix, music_ref),
+    }
+
+
+def _m7_report(rows: list[dict]) -> None:
+    print(f"\n{'recording':<28} {'dur':>6} {'sep s':>6} {'dev':>4}"
+          f" {'voice':>7} {'Δv':>6} {'music':>7} {'Δm':>6}")
+    for r in rows:
+        dv = r["voice_si_sdr"] - r["mix_voice_si_sdr"]
+        dm = r["music_si_sdr"] - r["mix_music_si_sdr"]
+        print(
+            f"{r['stem']:<28} {r['dur_s']:>6.1f} {r['seconds']:>6.1f}"
+            f" {r['device']:>4} {r['voice_si_sdr']:>6.1f}dB {dv:>+5.1f}dB"
+            f" {r['music_si_sdr']:>6.1f}dB {dm:>+5.1f}dB"
+        )
+
+
 # ---- M5: silence review files (unchanged, behind --m5) --------------------------
 
 
@@ -465,7 +555,7 @@ def main() -> int:
     REVIEW.mkdir(parents=True, exist_ok=True)
     device = _job_device()
     print(f"job device: {device}")
-    rows, rows_b = [], []
+    rows, rows_b, rows7 = [], [], []
     with tempfile.TemporaryDirectory(prefix="m6_review_") as td:
         tmp = Path(td)
         model = _whisper_model()
@@ -475,8 +565,14 @@ def main() -> int:
             print(f"processing {rec.name} (m6b podcast + breaths)…")
             rows_b.append(_m6b_one(rec, tmp, device, model))
         del model
+        if "--m7" in sys.argv[1:]:
+            for rec in recordings:
+                print(f"processing {rec.name} (m7 separation)…")
+                rows7.append(_m7_one(rec, tmp, device))
     _m6_report(rows)
     _m6b_report(rows_b)
+    if "--m7" in sys.argv[1:]:
+        _m7_report(rows7)
     if "--m5" in sys.argv[1:]:
         _m5(recordings)
     return 0

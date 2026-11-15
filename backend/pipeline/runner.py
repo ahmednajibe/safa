@@ -187,6 +187,9 @@ def run_pipeline(
                 caps=caps,
                 fps=fps,
                 timeline=current["timeline"],
+                out_dir=out_dir,
+                audio_format=output.audio_format,
+                display_stem=stem,
             )
             result = fn(prev, params or {}, ctx)
             out_wav = Path(result.path)

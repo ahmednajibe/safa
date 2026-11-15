@@ -98,7 +98,8 @@ OPERATIONS: dict[str, OpSpec] = {
         name="Separate voice and music",
         description="Keep the voice, keep the music, or export both.",
         engine="audio-separator", device="gpu-optional",
-        requires_modules=["audio_separator"], requires_models=["htdemucs"],
+        requires_modules=["audio_separator"],
+        requires_models=["htdemucs", "kim_vocal_2"],
         params=[
             ParamSpec("output", "Keep", "select", "vocals", options=_opts(
                 ("vocals", "Keep voice"),
@@ -106,7 +107,8 @@ OPERATIONS: dict[str, OpSpec] = {
                 ("both", "Export both"),
             )),
             ParamSpec("model", "Model", "select", "htdemucs", options=_opts(
-                ("htdemucs", "HTDemucs"), ("kim_vocal_2", "Kim Vocal 2"),
+                ("htdemucs", "Balanced"),
+                ("kim_vocal_2", "Tighter music removal"),
             ), advanced=True),
         ],
     ),

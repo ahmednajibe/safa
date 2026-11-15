@@ -12,7 +12,10 @@ from backend.operations.registry import OPERATIONS, OpSpec, ParamSpec
 
 # UI_DESIGN §6: conflict wording — one human sentence per op.
 KARAOKE_DISABLED_REASONS = {
+    "declick": "Off while Karaoke is on: click removal works on speech.",
     "denoise": "Off while Karaoke is on: noise reduction works on speech.",
+    "dereverb": "Off while Karaoke is on: echo removal is tuned for speech.",
+    "breaths": "Off while Karaoke is on: breath detection needs a voice.",
     "enhance": "Off while Karaoke is on: voice polish works on speech.",
     "silence": "Off while Karaoke is on: speech detection needs a voice.",
 }

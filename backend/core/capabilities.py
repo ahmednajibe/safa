@@ -66,10 +66,22 @@ def _model_present(name: str) -> bool:
     try:
         d = model_dir(name)
         if name == "htdemucs":
+            # weights + demucs yaml + the download manifest the library
+            # reads before every load_model (offline safety, M7).
             spec = MODELS[name]
-            return (d / spec.filename).exists() and (d / "htdemucs.yaml").exists()
+            return (
+                (d / spec.filename).exists()
+                and (d / "htdemucs.yaml").exists()
+                and (d / "download_checks.json").exists()
+            )
         if name == "kim_vocal_2":
-            return (d / MODELS[name].filename).exists()
+            # weights + all three metadata JSONs the MDX path downloads.
+            return (
+                (d / MODELS[name].filename).exists()
+                and (d / "download_checks.json").exists()
+                and (d / "vr_model_data.json").exists()
+                and (d / "mdx_model_data.json").exists()
+            )
         if name == "deepfilternet3":
             p = d / "DeepFilterNet3"
             return p.is_dir() and any(p.iterdir())

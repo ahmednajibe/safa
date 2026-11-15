@@ -107,6 +107,40 @@ def ltas_ripple_db(
     return float(np.sqrt((resid[band] ** 2).mean()))
 
 
+# ---- M7: separation metrics --------------------------------------------------
+
+
+def si_sdr_db(est: np.ndarray, ref: np.ndarray) -> float:
+    """Scale-invariant SDR (dB) between 1-D estimate and reference.
+
+    ``si_sdr = 10 log10( ||s_target||^2 / ||e_err||^2 )`` where
+    ``s_target = <est,ref>/||ref||^2 * ref``. Inputs are trimmed to the
+    shorter length (resampled stems can differ by a few samples).
+    """
+    n = min(len(est), len(ref))
+    e = np.asarray(est[:n], dtype=np.float64)
+    r = np.asarray(ref[:n], dtype=np.float64)
+    rr = float(r @ r)
+    if rr < 1e-20:
+        return -np.inf
+    target = (e @ r) / rr * r
+    err = e - target
+    return float(10 * np.log10((target @ target + 1e-20) / (err @ err + 1e-20)))
+
+
+def si_sdr_db_multi(est: np.ndarray, ref: np.ndarray) -> float:
+    """Mean per-channel SI-SDR for (n, ch) arrays; mono for 1-D input."""
+    est = np.asarray(est)
+    ref = np.asarray(ref)
+    if est.ndim == 1:
+        return si_sdr_db(est, ref)
+    ch = min(est.shape[1], ref.shape[1]) if ref.ndim > 1 else 1
+    if ref.ndim == 1:
+        ref = np.stack([ref] * ch, axis=1)
+    vals = [si_sdr_db(est[:, c], ref[:, c]) for c in range(ch)]
+    return float(np.mean(vals))
+
+
 def speech_band_ratio_db(
     x: np.ndarray, sr: int,
     band_lo: tuple[float, float] = (80.0, 200.0),
