@@ -25,20 +25,8 @@ import { useResolve } from "./hooks/useResolve";
 import { useSync } from "./hooks/useSync";
 import { I18nProvider, makeI18n } from "./i18n";
 import { shortGpuName } from "./lib/format";
+import { isTypingTarget, shortcutAction } from "./lib/shortcuts";
 import { StoreProvider, useStore } from "./state/store";
-
-function isTypingTarget(e: KeyboardEvent): boolean {
-  const el = e.target as HTMLElement | null;
-  if (!el) return false;
-  const tag = el.tagName;
-  return (
-    tag === "INPUT" ||
-    tag === "TEXTAREA" ||
-    tag === "SELECT" ||
-    el.isContentEditable ||
-    e.isComposing
-  );
-}
 
 function Shell() {
   const store = useStore();
@@ -63,29 +51,54 @@ function Shell() {
   const transportRef = useRef<TransportHandle>(null);
   const [announce, setAnnounce] = useState("");
 
+  // Shortcuts match on event.code (physical position) so they keep working
+  // on the Arabic layout (§8). Space/[ preventDefault so the page doesn't
+  // scroll.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTypingTarget(e)) return;
+      const action = shortcutAction(e);
+      if (!action) return;
+      if (action === "escape") {
+        if (ui.historyOpen) {
+          e.preventDefault();
+          store.dispatchUi({ type: "history", open: false });
+        }
+        return;
+      }
       const t = transportRef.current;
       if (!t) return;
-      if (e.code === "Space" && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        t.toggle();
-      } else if (e.code === "KeyA" && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        t.side("a");
-      } else if (e.code === "KeyB" && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        t.side("b");
-      } else if (e.code === "BracketLeft" && e.altKey) {
-        e.preventDefault();
-        t.seek(-5);
-      } else if (e.code === "BracketRight" && e.altKey) {
-        e.preventDefault();
-        t.seek(5);
+      switch (action) {
+        case "toggle":
+          e.preventDefault();
+          t.toggle();
+          break;
+        case "side-a":
+          t.side("a");
+          break;
+        case "side-b":
+          t.side("b");
+          break;
+        case "seek-back":
+          t.seek(-5);
+          break;
+        case "seek-fwd":
+          t.seek(5);
+          break;
+        case "play-region":
+          t.playRegion();
+          break;
+        case "nudge-back":
+          t.nudgeRegion(-0.5);
+          break;
+        case "nudge-fwd":
+          t.nudgeRegion(0.5);
+          break;
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [ui.historyOpen, store]);
 
   const attention = jobs.filter((j) => j.state === "completed").length;
   const mediaReady = media.status === "ready";

@@ -2,6 +2,11 @@ import type { JobStage } from "../api/types";
 import { useT } from "../i18n";
 import { useStore } from "../state/store";
 
+/** Job-level save notices live in the dock's done/save area, never under a
+ *  stage row (a "Saved to …" line under the last stage reads as that
+ *  stage's result). */
+const SAVE_MSG_CODES = new Set(["saved_to", "auto_save_failed"]);
+
 /** Results panel (below the preview bar, after a job): every stage in run
  *  order — translated name, the device it actually used, wall seconds and
  *  its translated summary — then the job's warnings. Nothing before a job. */
@@ -56,11 +61,13 @@ export function ResultsPanel() {
           );
         })}
       </ul>
-      {j.warnings?.map((w, i) => (
-        <div key={i} className="result-msg warn">
-          {t.msg(w.warning_code, w.warning_params)}
-        </div>
-      ))}
+      {j.warnings
+        ?.filter((w) => !SAVE_MSG_CODES.has(w.warning_code))
+        .map((w, i) => (
+          <div key={i} className="result-msg warn">
+            {t.msg(w.warning_code, w.warning_params)}
+          </div>
+        ))}
     </section>
   );
 }

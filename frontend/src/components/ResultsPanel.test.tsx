@@ -106,10 +106,29 @@ describe("ResultsPanel", () => {
     expect(pills[1].textContent).toBe("Processor");
   });
 
-  it("shows job warnings", () => {
-    renderPanel(JOB);
+  it("keeps job-level save messages out of the stage list", () => {
+    const { container } = renderPanel(JOB);
+    // saved_to / auto_save_failed are job-level: they belong to the
+    // done/save area, never under a stage row in Results.
+    expect(container.textContent).not.toContain("Couldn't save to");
     expect(
-      screen.getByText(/Couldn't save to D:\\out\. Save it manually\./),
+      screen.queryByText(/Couldn't save to D:\\out\. Save it manually\./),
+    ).toBeNull();
+  });
+
+  it("still shows non-save job warnings", () => {
+    const j: Job = {
+      ...JOB,
+      warnings: [
+        {
+          warning_code: "preset_partial",
+          warning_params: { skipped_op_ids: "noise" },
+        },
+      ],
+    };
+    renderPanel(j);
+    expect(
+      screen.getByText(/Some steps were skipped: noise/),
     ).toBeTruthy();
   });
 });

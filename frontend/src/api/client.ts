@@ -240,3 +240,15 @@ export function jobFileUrl(jobId: string, name: string): string {
 export function mediaPlaybackUrl(mediaId: string): string {
   return `/api/media/${encodeURIComponent(mediaId)}/playback`;
 }
+
+export function mediaFileUrl(mediaId: string): string {
+  return `/api/media/${encodeURIComponent(mediaId)}/file`;
+}
+
+export function mediaPeaksUrl(mediaId: string): string {
+  return `/api/media/${encodeURIComponent(mediaId)}/peaks`;
+}
+
+export function jobPeaksUrl(jobId: string): string {
+  return `/api/jobs/${encodeURIComponent(jobId)}/peaks`;
+}

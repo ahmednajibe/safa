@@ -1,13 +1,19 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
-import { mediaPlaybackUrl } from "../api/client";
+import { mediaFileUrl, mediaPlaybackUrl } from "../api/client";
 import { useT } from "../i18n";
 import { fmtTimecode } from "../lib/format";
+import {
+  nudgeRegion as nudgeRegionBy,
+  type Region,
+} from "../lib/region";
 import {
   isIdentity,
   nextKeptSrc,
@@ -16,32 +22,74 @@ import {
   type TimelineData,
 } from "../lib/timeline";
 import { SegmentedControl } from "./SegmentedControl";
+import { VideoCompare } from "./VideoCompare";
+import { WaveformWell } from "./WaveformWell";
 
 export interface TransportHandle {
   toggle: () => void;
   side: (s: "a" | "b") => void;
   seek: (delta: number) => void;
+  playRegion: () => void;
+  nudgeRegion: (delta: number) => void;
 }
 
-/** Audio-only A/B compare (M9a): two <audio> elements — the original
- *  playback URL and the completed job's primary output. Switching sides
- *  translates the playhead through the job's timeline map; landing inside
- *  a removed span jumps to the next kept point and announces it. */
+/** The transport + waveform well + video well (M9b): two <audio> elements —
+ *  the original playback URL and the compare job's primary output. The
+ *  waves render backend peaks through wavesurfer (never browser-decoded),
+ *  cut hatches + the draggable preview region ride on the original wave,
+ *  and A/B swaps which wave — and which video frame — sits in front.
+ *
+ *  ``srcOffset`` is the compare job's preview start: preview jobs store a
+ *  region-local timeline, so source-side lookups shift by it. */
 export const AudioComparePlayer = forwardRef<
   TransportHandle,
   {
     mediaId: string;
+    srcDuration: number;
+    hasVideo: boolean;
+    compareJobId: string | null;
     processedUrl: string | null;
+    processedVideoUrl: string | null;
     timeline: TimelineData | null;
+    srcOffset: number;
+    region: Region;
+    onRegion: (r: Region) => void;
     onAnnounce: (msg: string) => void;
   }
 >(function AudioComparePlayer(
-  { mediaId, processedUrl, timeline, onAnnounce },
+  {
+    mediaId,
+    srcDuration,
+    hasVideo,
+    compareJobId,
+    processedUrl,
+    processedVideoUrl,
+    timeline,
+    srcOffset,
+    region,
+    onRegion,
+    onAnnounce,
+  },
   ref,
 ) {
   const t = useT();
-  const aRef = useRef<HTMLAudioElement>(null);
-  const bRef = useRef<HTMLAudioElement>(null);
+  const aRef = useRef<HTMLAudioElement | null>(null);
+  const bRef = useRef<HTMLAudioElement | null>(null);
+  // Element-state mirrors of the refs: wavesurfer + the video mirror
+  // re-run their effects when the media elements mount/change.
+  const [aEl, setAEl] = useState<HTMLAudioElement | null>(null);
+  const [bEl, setBEl] = useState<HTMLAudioElement | null>(null);
+  const aCb = useCallback((el: HTMLAudioElement | null) => {
+    aRef.current = el;
+    setAEl(el);
+  }, []);
+  const bCb = useCallback((el: HTMLAudioElement | null) => {
+    bRef.current = el;
+    setBEl(el);
+  }, []);
+  const regionEnd = useRef<number | null>(null);
+  const regionStart = useRef<number | null>(null);
+
   const [side, setSide] = useState<"a" | "b">("a");
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState(0);
@@ -50,10 +98,35 @@ export const AudioComparePlayer = forwardRef<
   const mapped = timeline !== null && !isIdentity(timeline);
   const hasB = processedUrl !== null;
 
+  // source-domain (absolute s) → output-domain of the compare job.
+  const toOut = useCallback(
+    (srcT: number) => (timeline ? srcToOut(timeline, srcT - srcOffset) : srcT),
+    [timeline, srcOffset],
+  );
+  const toSrc = useCallback(
+    (outT: number) =>
+      timeline ? outToSrc(timeline, outT) + srcOffset : outT,
+    [timeline, srcOffset],
+  );
+  const nextKept = useCallback(
+    (srcT: number) => {
+      if (!timeline) return srcT;
+      const n = nextKeptSrc(timeline, srcT - srcOffset);
+      return n === null ? null : n + srcOffset;
+    },
+    [timeline, srcOffset],
+  );
+  const bToSrc = useMemo(() => {
+    if (!mapped) return (outT: number) => outT;
+    return (outT: number) => toSrc(outT);
+  }, [mapped, toSrc]);
+
   const active = () => (side === "a" ? aRef.current : bRef.current);
 
   const switchTo = (next: "a" | "b") => {
     if (next === side || (next === "b" && !hasB)) return;
+    regionEnd.current = null;
+    regionStart.current = null;
     const from = active();
     const cur = from?.currentTime ?? 0;
     const wasPlaying = !from?.paused;
@@ -61,23 +134,21 @@ export const AudioComparePlayer = forwardRef<
     const el = next === "a" ? aRef.current : bRef.current;
     if (el) {
       let dest = cur;
-      if (mapped && timeline) {
+      if (mapped) {
         if (next === "b") {
-          const out = srcToOut(timeline, cur);
+          const out = toOut(cur);
           if (out === null) {
-            const nks = nextKeptSrc(timeline, cur);
-            dest = nks !== null ? (srcToOut(timeline, nks) ?? 0) : 0;
-            onAnnounce(
-              t.t(t.d.ab.jumped, { t: fmtTimecode(dest) }),
-            );
+            const nks = nextKept(cur);
+            dest = nks !== null ? (toOut(nks) ?? 0) : 0;
+            onAnnounce(t.t(t.d.ab.jumped, { t: fmtTimecode(dest) }));
           } else {
             dest = out;
           }
         } else {
-          dest = outToSrc(timeline, cur);
+          dest = toSrc(cur);
         }
       }
-      el.currentTime = dest;
+      el.currentTime = Math.max(0, dest);
       if (wasPlaying) void el.play().catch(() => {});
     }
     setSide(next);
@@ -93,6 +164,7 @@ export const AudioComparePlayer = forwardRef<
   const seekBy = (delta: number) => {
     const el = active();
     if (!el || !Number.isFinite(el.duration)) return;
+    regionEnd.current = null;
     el.currentTime = Math.min(
       Math.max(0, el.currentTime + delta),
       el.duration,
@@ -100,50 +172,124 @@ export const AudioComparePlayer = forwardRef<
     setPos(el.currentTime);
   };
 
+  /** P: play just the previewed slice on the original side — the
+   *  timeupdate handler pauses at region end. The 'seeking' event fired
+   *  by the currentTime assignment is async, so onSeeking only cancels
+   *  the armed region when the playhead actually moves away from its
+   *  start (a real user/programmatic seek elsewhere). */
+  const playRegion = () => {
+    const el = aRef.current;
+    if (!el) return;
+    if (side !== "a") switchTo("a");
+    el.currentTime = Math.min(
+      Math.max(0, region.start_s),
+      Number.isFinite(el.duration) ? el.duration : Infinity,
+    );
+    regionStart.current = region.start_s;
+    regionEnd.current = region.end_s;
+    void el.play().catch(() => {});
+  };
+
+  const nudgeRegion = (delta: number) => {
+    onRegion(nudgeRegionBy(region, delta, srcDuration));
+  };
+
   useImperativeHandle(ref, () => ({
     toggle: togglePlay,
     side: switchTo,
     seek: seekBy,
+    playRegion,
+    nudgeRegion,
   }));
 
   useEffect(() => {
     if (!hasB && side === "b") setSide("a");
   }, [hasB, side]);
 
+  /** Region playback stops at the slice's end; a real seek cancels it. */
+  const onTick = (el: HTMLAudioElement, isSide: boolean) => {
+    if (
+      regionEnd.current !== null &&
+      el.currentTime >= regionEnd.current
+    ) {
+      regionEnd.current = null;
+      regionStart.current = null;
+      el.pause();
+    }
+    if (isSide) setPos(el.currentTime);
+  };
+
   const pct = dur > 0 ? Math.min(1, pos / dur) : 0;
 
   return (
     <div className="compare">
       <audio
-        ref={aRef}
+        ref={aCb}
         src={mediaPlaybackUrl(mediaId)}
         preload="metadata"
         onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-        onTimeUpdate={(e) => {
-          if (side === "a") setPos(e.currentTarget.currentTime);
+        onPause={() => {
+          setPlaying(false);
+          regionEnd.current = null;
+          regionStart.current = null;
         }}
+        onEnded={() => setPlaying(false)}
+        onSeeking={(e) => {
+          if (
+            regionEnd.current !== null &&
+            regionStart.current !== null &&
+            Math.abs(e.currentTarget.currentTime - regionStart.current) >
+              0.75
+          ) {
+            regionEnd.current = null;
+            regionStart.current = null;
+          }
+        }}
+        onTimeUpdate={(e) => onTick(e.currentTarget, side === "a")}
         onLoadedMetadata={(e) => {
           if (side === "a") setDur(e.currentTarget.duration || 0);
         }}
       />
       {hasB && (
         <audio
-          ref={bRef}
+          ref={bCb}
           src={processedUrl}
           preload="metadata"
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
-          onTimeUpdate={(e) => {
-            if (side === "b") setPos(e.currentTarget.currentTime);
-          }}
+          onTimeUpdate={(e) => onTick(e.currentTarget, side === "b")}
           onLoadedMetadata={(e) => {
             if (side === "b") setDur(e.currentTarget.duration || 0);
           }}
         />
       )}
+
+      <div className="compare-media">
+        {hasVideo && (
+          <VideoCompare
+            origUrl={mediaFileUrl(mediaId)}
+            procUrl={processedVideoUrl}
+            side={side}
+            aEl={aEl}
+            bEl={bEl}
+            bToSrc={bToSrc}
+            onToggle={togglePlay}
+          />
+        )}
+        <WaveformWell
+          mediaId={mediaId}
+          srcDuration={srcDuration}
+          aEl={aEl}
+          bEl={bEl}
+          compareJobId={compareJobId}
+          front={side}
+          timeline={timeline}
+          srcOffset={srcOffset}
+          region={region}
+          onRegion={onRegion}
+        />
+      </div>
 
       <div className="transport">
         {/* LTR island (§12.1): play, current time, bar, duration never
@@ -176,6 +322,14 @@ export const AudioComparePlayer = forwardRef<
           </div>
           <span className="tc mono">{fmtTimecode(dur)}</span>
         </div>
+
+        <button
+          type="button"
+          className="btn-secondary region-play"
+          onClick={playRegion}
+        >
+          {t.d.preview.listenRegion}
+        </button>
 
         {hasB && (
           <SegmentedControl

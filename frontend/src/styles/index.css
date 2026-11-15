@@ -750,6 +750,219 @@ kbd {
   min-inline-size: 0;
 }
 .playback { flex: 1; }
+.region-play { flex-shrink: 0; }
+
+/* ---------- Compare media: video + waveform wells (M9b, §6/§7) ----------
+   Both wells are dir="ltr" islands — wave, ruler, handles, playhead and
+   the video frame keep source-time geometry in Arabic too. */
+.compare-media {
+  display: flex;
+  gap: 10px;
+  margin-block-end: 10px;
+  align-items: stretch;
+}
+.video-well {
+  position: relative;
+  flex: 0 0 clamp(180px, 26%, 300px);
+  aspect-ratio: 16 / 9;
+  align-self: flex-start;
+  border-radius: var(--radius-inner);
+  background: var(--ground);
+  overflow: hidden;
+}
+.compare-video {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+}
+.compare-video.behind { visibility: hidden; }
+.video-hit {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.video-hit:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+
+.well {
+  flex: 1;
+  min-inline-size: 0;
+  border-radius: var(--radius-inner);
+  background: var(--well);
+  padding: 8px 10px 10px;
+}
+.well-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-block-end: 4px;
+}
+.well-zoom {
+  margin-inline-start: auto;
+  display: flex;
+  gap: 4px;
+}
+.well-zoom .icon-btn {
+  inline-size: 26px;
+  block-size: 26px;
+  font-size: 14px;
+}
+.ruler {
+  flex: 1;
+  position: relative;
+  block-size: 14px;
+  overflow: hidden;
+}
+.ruler-track {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 100%;
+}
+.ruler-tick {
+  position: absolute;
+  inset-block-start: 0;
+  transform: translateX(2px);
+  color: var(--faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.well-stack {
+  position: relative;
+  block-size: 132px;
+  overflow: hidden;
+}
+.wave-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  transition: opacity var(--t-feedback) var(--ease);
+}
+.wave-layer.behind {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.wave-surface {
+  position: absolute;
+  inset: 0;
+  /* own stacking context: wavesurfer's internal z-indexed parts (cursor is
+     z-3) stay below the hatch/region overlay tracks on this layer. */
+  z-index: 0;
+}
+.well-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  font-size: var(--fs-small);
+}
+
+/* Cut hatches — 45° stripes over --cut-fill so removal reads as a
+   pattern, not just a colour (§6). Never flipped in RTL. */
+.cut-track {
+  position: absolute;
+  inset: 0;
+  /* Above .preview-track (z-5): a cut inside the preview region must still
+     take hover/focus for its "Removed …" label. The track itself passes
+     pointer events through — only the .cut-span stripes intercept, so the
+     region body stays draggable everywhere else. */
+  z-index: 6;
+  pointer-events: none;
+}
+.cut-span {
+  position: absolute;
+  inset-block: 0;
+  min-inline-size: 3px;
+  pointer-events: auto;
+  cursor: help;
+  background:
+    repeating-linear-gradient( /* taste-skill-ignore — required 45° cut hatch (§6), a stripe pattern not a gradient fill */
+      45deg,
+      var(--negative) 0px,
+      var(--negative) 1px,
+      transparent 1px,
+      transparent 7px
+    ),
+    var(--cut-fill);
+}
+.cut-label {
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-start: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-tag);
+  background: var(--ground);
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.cut-span:hover .cut-label,
+.cut-span:focus-visible .cut-label {
+  opacity: 1;
+}
+.cut-span:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: -1px;
+}
+
+/* Preview region: --preview-fill body + --preview-edge 1px sides, fat
+   invisible handle hit areas (12px) around each edge. */
+.preview-track {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.preview-region {
+  position: absolute;
+  inset-block: 0;
+  pointer-events: auto;
+  cursor: grab;
+  background: var(--preview-fill);
+  border-inline-start: 1px solid var(--preview-edge);
+  border-inline-end: 1px solid var(--preview-edge);
+  touch-action: none;
+}
+.preview-region:active { cursor: grabbing; }
+.preview-region:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: -1px;
+}
+.ph {
+  position: absolute;
+  inset-block: 0;
+  inline-size: 12px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.ph-start { inset-inline-start: -6px; }
+.ph-end { inset-inline-end: -6px; }
+.ph::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 50%;
+  inline-size: 4px;
+  transform: translateX(-50%);
+  background: var(--preview-edge);
+  border-radius: 2px;
+}
+.ph:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: -1px;
+}
 
 /* ---------- Preview bar ---------- */
 .preview-bar {
@@ -1003,6 +1216,15 @@ kbd {
   .player-col { order: 1; }
   .top-filename { max-inline-size: 140px; }
   .estimate-sub { margin-inline-start: 0; inline-size: 100%; text-align: start; }
+}
+@media (max-width: 800px) {
+  /* Phone-ish: video frame drops above the wave, full width. */
+  .compare-media { flex-direction: column; }
+  .video-well {
+    flex: none;
+    inline-size: min(320px, 100%);
+    margin-inline: auto;
+  }
 }
 @media (max-width: 600px) {
   .hw-long { display: none; }

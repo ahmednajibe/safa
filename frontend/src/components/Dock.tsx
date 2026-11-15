@@ -173,6 +173,16 @@ export function JobResult() {
           {j.files && j.files.length > 0 && (
             <SaveCluster jobId={j.id} files={j.files} />
           )}
+          {j.warnings
+            ?.filter((w) => w.warning_code === "auto_save_failed")
+            .map((w, i) => (
+              <div key={i} className="save-warn" role="alert">
+                <span className="pill pill-warning">{t.d.save.warn}</span>
+                <span className="save-note">
+                  {t.msg(w.warning_code, w.warning_params)}
+                </span>
+              </div>
+            ))}
         </>
       )}
       {j.state === "failed" && (
@@ -381,7 +391,8 @@ export function Dock({
                   ·{" "}
                 </>
               )}
-              {j.overall_pct != null && `${t.num(Math.round(j.overall_pct))}%`}
+              {j.stage_pct != null &&
+                `${t.num(Math.round(j.stage_pct * 100))}%`}
               {etaText && ` · ${etaText}`}
               {j.device && ` · ${j.device.toUpperCase()}`}
             </span>
@@ -396,13 +407,15 @@ export function Dock({
           <div
             className="progress"
             role="progressbar"
-            aria-valuenow={Math.round(j.overall_pct ?? 0)}
+            aria-valuenow={Math.round((j.overall_pct ?? 0) * 100)}
             aria-valuemin={0}
             aria-valuemax={100}
           >
             <div
               className="progress-fill"
-              style={{ inlineSize: `${Math.min(100, j.overall_pct ?? 0)}%` }}
+              style={{
+                inlineSize: `${Math.min(100, (j.overall_pct ?? 0) * 100)}%`,
+              }}
             />
           </div>
           {(j.message_code || j.message) && (

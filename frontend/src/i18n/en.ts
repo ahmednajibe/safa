@@ -13,7 +13,15 @@ export type PluralForms = {
   };
 };
 
-export type MsgVal = string | { text: string; plurals?: Record<string, PluralForms> };
+export type MsgVal =
+  | string
+  | {
+      text: string;
+      /** Whole-message template used instead of `text` when a plural's
+       *  count param is 0 ("No breaths found"). */
+      zero?: string;
+      plurals?: Record<string, PluralForms>;
+    };
 
 export interface OpText {
   name: string;
@@ -144,6 +152,16 @@ export const en = {
     play: "Play",
     pause: "Pause",
   },
+  well: {
+    waveform: "Waveform",
+    loading: "Drawing the waveform…",
+    zoomIn: "Zoom in on the waveform",
+    zoomOut: "Zoom out on the waveform",
+    region: "Preview region",
+    regionStart: "Preview start",
+    regionEnd: "Preview end",
+    video: "Video preview",
+  },
   history: {
     title: "History",
     empty: "Your processed recordings will appear here.",
@@ -188,6 +206,7 @@ export const en = {
     savedTo: "Saved to {folder}",
     autoFailed: "Couldn't save to {folder}. Save it manually.",
     error: "Couldn't save the file. Try again.",
+    warn: "Warning",
   },
   fileKind: {
     video: "MP4",
@@ -455,6 +474,7 @@ export const en = {
     room_resonances_cut: "Reduced room echo: cut resonances at {freqs} Hz",
     breaths_reduced: {
       text: "Made {breaths} quieter by about {db} dB",
+      zero: "No breaths found",
       plurals: {
         breaths: {
           count: "count",

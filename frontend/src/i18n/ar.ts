@@ -124,6 +124,16 @@ export const ar: Dict = {
     play: "تشغيل",
     pause: "إيقاف مؤقت",
   },
+  well: {
+    waveform: "شكل الموجة",
+    loading: "جارٍ رسم شكل الموجة…",
+    zoomIn: "تكبير شكل الموجة",
+    zoomOut: "تصغير شكل الموجة",
+    region: "مقطع المعاينة",
+    regionStart: "بداية المعاينة",
+    regionEnd: "نهاية المعاينة",
+    video: "معاينة الفيديو",
+  },
   history: {
     title: "السجل",
     empty: "ستظهر هنا تسجيلاتك بعد معالجتها.",
@@ -168,6 +178,7 @@ export const ar: Dict = {
     savedTo: "تم الحفظ في {folder}",
     autoFailed: "تعذّر الحفظ في {folder}. احفظ الملف يدويًا.",
     error: "تعذّر حفظ الملف. حاول مرة أخرى.",
+    warn: "تحذير",
   },
   fileKind: {
     video: "MP4",
@@ -435,6 +446,7 @@ export const ar: Dict = {
     room_resonances_cut: "قُلِّل صدى الغرفة: قُطعت الرنات عند {freqs} هرتز",
     breaths_reduced: {
       text: "خُفض صوت {breaths} بنحو {db} ديسيبل",
+      zero: "لم يُعثر على صوت تنفس",
       plurals: {
         breaths: {
           count: "count",

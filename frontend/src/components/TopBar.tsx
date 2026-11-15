@@ -164,7 +164,10 @@ export function TopBar({
               <li><kbd>Space</kbd> {t.d.shortcuts.play}</li>
               <li><kbd>A</kbd> {t.d.shortcuts.original}</li>
               <li><kbd>B</kbd> {t.d.shortcuts.processed}</li>
-              <li><kbd>Alt</kbd>+<kbd>[</kbd> / <kbd>Alt</kbd>+<kbd>]</kbd> {t.d.shortcuts.seek}</li>
+              <li><kbd>←</kbd> <kbd>→</kbd> {t.d.shortcuts.seek}</li>
+              <li><kbd>P</kbd> {t.d.shortcuts.preview}</li>
+              <li><kbd>[</kbd> <kbd>]</kbd> {t.d.shortcuts.nudge}</li>
+              <li><kbd>Esc</kbd> {t.d.shortcuts.close}</li>
             </ul>
           </div>
         )}

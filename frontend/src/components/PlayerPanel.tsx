@@ -1,10 +1,11 @@
 import { forwardRef, useEffect, useMemo, useState } from "react";
 import { submitJob } from "../actions";
 import { getJob, jobFileUrl } from "../api/client";
+import type { Job } from "../api/types";
 import { useT } from "../i18n";
 import { useTimelineMap } from "../hooks/useTimelineMap";
 import { fmtSpan } from "../lib/format";
-import { removedSpans } from "../lib/timeline";
+import { hatchSpans } from "../lib/peaks";
 import { isTerminal } from "../state/reducers";
 import { useStore } from "../state/store";
 import {
@@ -28,37 +29,46 @@ export const PlayerPanel = forwardRef<TransportHandle>(function PlayerPanel(
   const { media, selection, job } = store;
   const announce = useAnnounce();
   const [previewing, setPreviewing] = useState(false);
-  const [compareFile, setCompareFile] = useState<string | null>(null);
+  const [compareJob, setCompareJob] = useState<Job | null>(null);
 
   const timeline = useTimelineMap(job.compareJobId);
 
-  // Resolve the compare job's primary output file.
+  // Resolve the compare job: its audio output, an optional processed
+  // video file, and (for preview jobs) the region start the timeline is
+  // offset by.
   useEffect(() => {
     const cid = job.compareJobId;
     if (!cid) {
-      setCompareFile(null);
+      setCompareJob(null);
       return;
     }
     let alive = true;
-    const pick = (files?: { name: string; kind: string }[]) => {
-      const audio = files?.find((f) => f.kind === "audio" || f.kind === "video");
-      return audio?.name ?? files?.[0]?.name ?? null;
-    };
     if (job.job?.id === cid && job.job.files?.length) {
-      setCompareFile(pick(job.job.files));
+      setCompareJob(job.job);
     } else {
       getJob(cid)
         .then((j) => {
-          if (alive) setCompareFile(pick(j.files));
+          if (alive) setCompareJob(j);
         })
         .catch(() => {
-          if (alive) setCompareFile(null);
+          if (alive) setCompareJob(null);
         });
     }
     return () => {
       alive = false;
     };
   }, [job.compareJobId, job.job]);
+
+  const compareFile = useMemo(() => {
+    const files = compareJob?.files;
+    const audio = files?.find((f) => f.kind === "audio" || f.kind === "video");
+    return audio?.name ?? files?.[0]?.name ?? null;
+  }, [compareJob]);
+  const compareVideoFile = useMemo(
+    () => compareJob?.files?.find((f) => f.kind === "video")?.name ?? null,
+    [compareJob],
+  );
+  const compareSrcOffset = compareJob?.preview?.start_s ?? 0;
 
   const duration = media.probe?.duration_s ?? null;
 
@@ -83,7 +93,10 @@ export const PlayerPanel = forwardRef<TransportHandle>(function PlayerPanel(
   const running = job.job !== null && !isTerminal(job.job);
   const runningPreview = running && job.job?.kind === "preview";
 
-  const cuts = useMemo(() => (timeline ? removedSpans(timeline) : []), [timeline]);
+  const cuts = useMemo(
+    () => (timeline ? hatchSpans(timeline, compareSrcOffset) : []),
+    [timeline, compareSrcOffset],
+  );
 
   if (media.status === "empty" || media.status === "uploading" || media.status === "preparing") {
     return (
@@ -116,12 +129,25 @@ export const PlayerPanel = forwardRef<TransportHandle>(function PlayerPanel(
         <AudioComparePlayer
           ref={transportRef}
           mediaId={media.mediaId}
+          srcDuration={duration ?? 0}
+          hasVideo={media.probe?.has_video === true}
+          compareJobId={job.compareJobId}
           processedUrl={
             job.compareJobId && compareFile
               ? jobFileUrl(job.compareJobId, compareFile)
               : null
           }
+          processedVideoUrl={
+            job.compareJobId && compareVideoFile
+              ? jobFileUrl(job.compareJobId, compareVideoFile)
+              : null
+          }
           timeline={timeline}
+          srcOffset={compareSrcOffset}
+          region={job.previewRegion}
+          onRegion={(r) =>
+            store.dispatchJob({ type: "preview-region", region: r })
+          }
           onAnnounce={announce}
         />
       )}

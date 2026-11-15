@@ -84,3 +84,50 @@ describe("formatMessage basics", () => {
     expect(s).toContain("نَفَس");
   });
 });
+
+describe("breaths_reduced count=0", () => {
+  it("en: 'No breaths found' instead of 'Made 0 breaths quieter…'", () => {
+    expect(
+      formatMessage("breaths_reduced", { count: 0, db: 8 }, en)
+    ).toBe("No breaths found");
+  });
+  it("ar: 'لم يُعثر على صوت تنفس'", () => {
+    expect(
+      formatMessage("breaths_reduced", { count: 0, db: 8 }, ar, null, "ar")
+    ).toBe("لم يُعثر على صوت تنفس");
+  });
+  it("non-zero counts still use the normal template", () => {
+    const s = formatMessage("breaths_reduced", { count: 4, db: 8 }, en);
+    expect(s).toContain("4 breaths");
+    expect(s).toContain("8 dB");
+  });
+});
+
+describe("room_resonances_cut list formatting", () => {
+  it("en: Intl.ListFormat joins the frequencies", () => {
+    const s = formatMessage(
+      "room_resonances_cut",
+      { freqs: [281, 516, 621] },
+      en,
+    );
+    expect(s).toContain("281");
+    expect(s).toContain("516");
+    expect(s).toContain("621");
+    expect(s).toContain("and");
+    expect(s).toMatch(/281, 516,? and 621 Hz/);
+  });
+  it("ar: Arabic list format, Western digits", () => {
+    const s = formatMessage(
+      "room_resonances_cut",
+      { freqs: [281, 516, 621] },
+      ar,
+      null,
+      "ar",
+    );
+    expect(s).toContain("281");
+    expect(s).toContain("516");
+    expect(s).toContain("621");
+    expect(s).toContain("و"); // Arabic conjunction
+    expect(s).not.toMatch(/[٠-٩]/); // no Arabic-Indic digits
+  });
+});
