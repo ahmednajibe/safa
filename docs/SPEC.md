@@ -13,13 +13,13 @@ Every operation has an `id`, fixed `order` number, params schema, and declared d
 |---|---|---|---|---|
 | 10 | `trim` | Trim start/end | ffmpeg | start/end seconds |
 | 15 | `channel` | Channel fix (mono / pick L or R) | ffmpeg | mode=keep |
-| 20 | `highpass` | Rumble/DC removal | pedalboard / ffmpeg | 75 Hz |
+| 20 | `highpass` | Rumble/DC removal | pedalboard / ffmpeg | 90 Hz |
 | 25 | `dehum` | Hum removal 50/60 Hz + harmonics | ffmpeg notch (`bandreject` / `anequalizer`) | 50 Hz, 4 harmonics |
 | 30 | `separate` | **Remove music** (keep voice) / **Karaoke** (keep music) / export both stems | `audio-separator` (htdemucs default; MDX `Kim_Vocal_2.onnx` option) | output=vocals |
 | 35 | `dereverb` | Room echo removal | `audio-separator` MDX reverb model (optional, behind feasibility check) | — |
+| 38 | `declick` | Mouth-click removal (saliva / lip smacks), optional digital-crackle mode | numpy/scipy band-limited detector + AR repair (mouth), ffmpeg `adeclick` (crackle) | mode=mouth, sensitivity=normal |
 | 40 | `denoise` | **Noise reduction** | **DeepFilterNet3** (primary), ffmpeg `afftdn` (fallback / "classic" mode) | atten_lim_db=24 |
-| 45 | `declick` | Click/pop removal | ffmpeg `adeclick` | conservative |
-| 50 | `enhance` | **Voice enhance / quality** (studio DSP: HPF→de-esser→presence EQ→compressor) | `pedalboard` (HPF/EQ/compressor) + ffmpeg `deesser` (pedalboard has no de-esser) | preset=voice |
+| 50 | `enhance` | **Voice enhance / quality** (studio DSP: 95 Hz HPF ×2 → de-boom EQ → downward expander → compressor → presence EQ → optional de-esser; per-file dynamic thresholds from measured floor/speech levels) | `pedalboard` (NoiseGate/HPF/EQ/compressor) + ffmpeg `deesser` | preset=voice, reduce_boom=on, deess=on |
 | 55 | `enhance_ai` | AI restoration (optional, later milestone) | `resemble-enhance` in isolated env, `--no-deps` | off |
 | 60 | `silence` | **Cut silence** / shorten pauses | `silero-vad` (speech mode) or ffmpeg `silencedetect` (amplitude mode); 15 ms crossfades; same keep-intervals drive video cuts | max_pause=0.6s → keep 0.25s, pad 0.2s |
 | 70 | `speed` | Speed / tempo change (pitch-preserving) | ffmpeg `atempo` | 1.0 |

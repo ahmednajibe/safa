@@ -20,6 +20,7 @@ KARAOKE_DISABLED_REASONS = {
 REASON_NOT_AVAILABLE = "Not available on this computer"
 REASON_MODEL_MISSING = "Model not downloaded yet"
 REASON_PLANNED = "Coming later"
+REASON_NOT_IMPLEMENTED = "Coming in a later update"
 
 
 @dataclass
@@ -102,8 +103,24 @@ def _unavailable_reason(op: OpSpec) -> str:
     return REASON_NOT_AVAILABLE
 
 
-def resolve(selection: dict[str, dict], available: dict[str, bool]) -> Effective:
-    """Validate + order a selection and apply conflict/availability rules."""
+def resolve(
+    selection: dict[str, dict],
+    available: dict[str, bool],
+    implemented: set[str] | None = None,
+) -> Effective:
+    """Validate + order a selection and apply conflict/availability rules.
+
+    ``implemented`` is the set of op ids that actually have a runner
+    implementation — an available-but-unimplemented op (e.g. denoise or
+    silence before their milestones land) is disabled with
+    "Coming in a later update" instead of failing the job later.
+    ``None`` reads the live ``IMPLEMENTATIONS`` table; tests pass a full set
+    to exercise pure rule logic.
+    """
+    if implemented is None:
+        from backend.operations.impl import IMPLEMENTATIONS
+
+        implemented = set(IMPLEMENTATIONS)
     disabled: dict[str, str] = {}
     merged: dict[str, dict] = {}
     for op_id, params in selection.items():
@@ -115,6 +132,9 @@ def resolve(selection: dict[str, dict], available: dict[str, bool]) -> Effective
             continue
         if not available.get(op_id, True):
             disabled[op_id] = _unavailable_reason(spec)
+            continue
+        if op_id not in implemented:
+            disabled[op_id] = REASON_NOT_IMPLEMENTED
             continue
         merged[op_id] = validate_params(op_id, params)
 

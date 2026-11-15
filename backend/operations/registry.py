@@ -76,7 +76,7 @@ OPERATIONS: dict[str, OpSpec] = {
         description="Cuts deep thumps, desk bumps and air-conditioner rumble.",
         engine="pedalboard / ffmpeg", device="cpu",
         params=[
-            ParamSpec("cutoff_hz", "Cutoff", "number", 75,
+            ParamSpec("cutoff_hz", "Cutoff", "number", 90,
                       min=40, max=200, unit="Hz"),
         ],
     ),
@@ -135,11 +135,16 @@ OPERATIONS: dict[str, OpSpec] = {
         ],
     ),
     "declick": OpSpec(
-        id="declick", order=45,
-        name="Remove clicks and pops",
-        description="Smooths mouth clicks, crackles and sharp ticks.",
-        engine="ffmpeg", device="cpu",
+        id="declick", order=38,
+        name="Remove mouth clicks",
+        description="Removes saliva clicks, lip smacks and crackle without touching consonants.",
+        engine="numpy/scipy + ffmpeg", device="cpu",
         params=[
+            ParamSpec("mode", "Click type", "select", "mouth",
+                      options=_opts(
+                          ("mouth", "Mouth clicks and saliva"),
+                          ("crackle", "Digital crackle"),
+                      )),
             ParamSpec("sensitivity", "Sensitivity", "select", "normal",
                       options=_opts(
                           ("gentle", "Gentle"), ("normal", "Normal"),
@@ -157,6 +162,7 @@ OPERATIONS: dict[str, OpSpec] = {
             ParamSpec("preset", "Preset", "select", "voice", options=_opts(
                 ("voice", "Voice"), ("bright", "Bright"), ("warm", "Warm"),
             )),
+            ParamSpec("reduce_boom", "Reduce boominess", "bool", True),
             ParamSpec("deess", "Soften \"s\" sounds", "bool", True),
         ],
     ),
@@ -242,7 +248,9 @@ PRESETS: dict[str, dict] = {
         "name": "Podcast cleanup",
         "ops": {
             "highpass": {},
-            "denoise": {},
+            "dehum": {},
+            "declick": {"mode": "mouth"},
+            "denoise": {"engine": "ai", "strength_db": 12},
             "enhance": {},
             "silence": {"mode": "vad"},
             "loudness": {"target": "podcast"},
@@ -270,8 +278,10 @@ PRESETS: dict[str, dict] = {
         "ops": {
             "highpass": {},
             "dehum": {},
-            "denoise": {},
-            "silence": {},
+            "declick": {"mode": "mouth"},
+            "denoise": {"engine": "ai", "strength_db": 12},
+            "enhance": {},
+            "silence": {"mode": "vad"},
             "loudness": {},
             "subtitles": {},
         },
@@ -286,7 +296,9 @@ PRESETS: dict[str, dict] = {
     "jump_cut": {
         "name": "Video jump-cut",
         "ops": {
-            "denoise": {},
+            "declick": {"mode": "mouth"},
+            "denoise": {"engine": "ai", "strength_db": 12},
+            "enhance": {},
             "silence": {"mode": "vad"},
             "loudness": {"target": "youtube"},
         },

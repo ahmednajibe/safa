@@ -1,29 +1,153 @@
-"""declick — click/pop removal via ffmpeg ``adeclick`` (SPEC §2).
+"""declick — click removal (SPEC §2, M4c Task 1).
 
-Sensitivity mapping (UI select → adeclick params):
-- ``gentle``: ``w=55:o=75:t=4`` — defaults with a *higher* threshold (t=4),
-  so only obvious clicks are touched.
-- ``normal``: ``t=2`` — ffmpeg's default detection threshold.
-- ``strong``: ``t=1.5:b=4`` — lower threshold (catches more) plus stronger
-  burst fusion for dense crackle.
+Modes (registry ``mode`` param):
+- ``mouth`` (default): saliva clicks / lip smacks — band-limited detector +
+  high-band-only AR repair in ``backend.media.mouthclick``, streamed in
+  10 s blocks with 50 ms overlap (two passes: detect, then copy+patch).
+  ``sensitivity`` maps to the detector's z threshold: gentle 7, normal 6,
+  strong 5.
+- ``crackle``: digital crackle — the ffmpeg ``adeclick`` mapping from M4a.
+  ``gentle``: ``w=55:o=75:t=4`` (higher threshold, only obvious clicks);
+  ``normal``: ``t=2``; ``strong``: ``t=1.5:b=4`` (lower threshold + stronger
+  burst fusion).
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from backend.media.ffmpeg_run import run_filter
-from backend.operations.base import OpContext, OpResult, stage_wav
+import numpy as np
+import soundfile as sf
 
-_MAP = {
+from backend.media.ffmpeg_run import run_filter
+from backend.media.mouthclick import detect_mouth_clicks, repair_mouth_clicks
+from backend.operations.base import OpContext, OpResult, stage_wav
+from backend.pipeline.types import CancelledError
+
+_CRACKLE = {
     "gentle": "adeclick=w=55:o=75:t=4",
     "normal": "adeclick=t=2",
     "strong": "adeclick=t=1.5:b=4",
 }
+_Z = {"gentle": 7.0, "normal": 6.0, "strong": 5.0}
+_BLOCK_S = 10.0
+_OVERLAP_S = 0.05
+_XFADE_S = 0.0005
+_CTX_S = 0.012  # AR context + fade + margin, each side
+_MERGE_GAP_S = 0.001
+_MERGE_MAX_S = 0.010
+
+
+def _merge_spans(
+    spans: list[tuple[int, int]], gap: int, max_w: int
+) -> list[tuple[int, int]]:
+    """Merge spans ≤``gap`` apart (tick bursts) capped at ``max_w``."""
+    out: list[list[int]] = []
+    for a, b in sorted(spans):
+        if out and a - out[-1][1] <= gap and b - out[-1][0] <= max_w:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return [tuple(s) for s in out]
+
+
+def _detect_all(
+    fin: sf.SoundFile, sr: int, z: float, ctx: OpContext
+) -> list[list[tuple[int, int]]]:
+    """Pass 1: click spans per channel. Each 10 s block is scanned with 50 ms
+    of context on both sides (envelope medians need ~40 ms); a span is owned
+    by the block its start falls in, so nothing is double-counted."""
+    n, ch = fin.frames, fin.channels
+    block, ov = int(sr * _BLOCK_S), int(sr * _OVERLAP_S)
+    spans: list[list[tuple[int, int]]] = [[] for _ in range(ch)]
+    pos = 0
+    while pos < n:
+        if ctx.should_cancel():
+            raise CancelledError()
+        a, b = max(0, pos - ov), min(n, pos + block + ov)
+        fin.seek(a)
+        seg = fin.read(b - a, dtype="float64", always_2d=True)
+        for c in range(ch):
+            for s, e in detect_mouth_clicks(seg[:, c], sr, z):
+                if pos <= s + a < pos + block:
+                    spans[c].append((s + a, e + a))
+        pos += block
+        ctx.report(0.45 * pos / n, None)
+    gap, max_w = int(sr * _MERGE_GAP_S), int(sr * _MERGE_MAX_S)
+    return [_merge_spans(s, gap, max_w) for s in spans]
+
+
+def _patch_block(
+    fin: sf.SoundFile,
+    blk: np.ndarray,
+    blk_start: int,
+    chan: int,
+    spans: list[tuple[int, int]],
+    sr: int,
+) -> None:
+    """Write repaired audio for every span intersecting the block.
+
+    The patch's context always comes from the *input*, so the result is
+    identical whichever side of a block boundary it is computed from.
+    """
+    n = fin.frames
+    xf = int(sr * _XFADE_S)
+    pad = int(sr * _CTX_S)
+    for a, b in spans:
+        pa, pb = max(0, a - xf), min(n, b + xf)
+        if pb <= blk_start or pa >= blk_start + len(blk):
+            continue
+        ca, cb = max(0, pa - pad), min(n, pb + pad)
+        fin.seek(ca)
+        seg = fin.read(cb - ca, dtype="float64", always_2d=True)[:, chan]
+        local = [
+            (max(ca, s) - ca, min(cb, e) - ca)
+            for s, e in spans
+            if e > ca and s < cb
+        ]
+        patched = repair_mouth_clicks(seg, sr, local)
+        w0 = max(pa, blk_start)
+        w1 = min(pb, blk_start + len(blk))
+        blk[w0 - blk_start:w1 - blk_start, chan] = patched[w0 - ca:w1 - ca]
+
+
+def _mouth(in_wav: Path, out_wav: Path, z: float, ctx: OpContext) -> None:
+    with sf.SoundFile(str(in_wav)) as fin:
+        sr = int(fin.samplerate)
+        spans = _detect_all(fin, sr, z, ctx)
+        block = int(sr * _BLOCK_S)
+        with sf.SoundFile(
+            str(out_wav), "w", sr, fin.channels,
+            subtype="FLOAT", format="WAV",
+        ) as fout:
+            pos = 0
+            while pos < fin.frames:
+                if ctx.should_cancel():
+                    raise CancelledError()
+                fin.seek(pos)
+                blk = fin.read(
+                    min(block, fin.frames - pos),
+                    dtype="float64", always_2d=True,
+                )
+                for c in range(fin.channels):
+                    _patch_block(fin, blk, pos, c, spans[c], sr)
+                fout.write(blk.astype(np.float32))
+                pos += len(blk)
+                ctx.report(0.45 + 0.55 * pos / fin.frames, None)
 
 
 def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
-    mode = (params or {}).get("sensitivity", "normal")
-    afilter = _MAP.get(mode, _MAP["normal"])
+    params = params or {}
     out = stage_wav(ctx, "declick")
-    run_filter(in_wav, out, afilter, ctx)
+    if params.get("mode", "mouth") == "crackle":
+        afilter = _CRACKLE.get(
+            params.get("sensitivity", "normal"), _CRACKLE["normal"]
+        )
+        run_filter(in_wav, out, afilter, ctx)
+        return OpResult(path=out)
+    z = _Z.get(params.get("sensitivity", "normal"), _Z["normal"])
+    try:
+        _mouth(in_wav, out, z, ctx)
+    except BaseException:
+        out.unlink(missing_ok=True)
+        raise
     return OpResult(path=out)

@@ -22,6 +22,14 @@ def _all_available():
     return {op_id: True for op_id in OPERATIONS}
 
 
+def _all_implemented():
+    """Every op id — exercises pure rule logic regardless of which
+    milestones have landed (``resolve(implemented=...)``)."""
+    from backend.operations.registry import OPERATIONS
+
+    return set(OPERATIONS)
+
+
 # ---- registry shape ---------------------------------------------------------
 
 
@@ -32,11 +40,13 @@ def test_fourteen_ops_in_order():
     ids = [op.id for op in ops_in_order()]
     assert ids == [
         "trim", "channel", "highpass", "dehum", "separate", "dereverb",
-        "denoise", "declick", "enhance", "enhance_ai", "silence",
+        "declick", "denoise", "enhance", "enhance_ai", "silence",
         "speed", "loudness", "subtitles",
     ]
     orders = [op.order for op in ops_in_order()]
     assert orders == sorted(orders)
+    assert OPERATIONS["declick"].order == 38  # after dereverb, before denoise (M4c)
+    assert OPERATIONS["highpass"].params[0].default == 90
 
 
 def test_names_match_ui_design():
@@ -92,6 +102,7 @@ def test_karaoke_conflicts():
             "silence": {"mode": "vad"},
         },
         _all_available(),
+        _all_implemented(),
     )
     assert [op_id for op_id, _ in eff.ops] == ["separate"]
     assert set(eff.disabled) == {"denoise", "enhance", "silence"}
@@ -108,6 +119,7 @@ def test_karaoke_keeps_amplitude_silence():
             "silence": {"mode": "amplitude"},
         },
         _all_available(),
+        _all_implemented(),
     )
     ids = [op_id for op_id, _ in eff.ops]
     assert "silence" in ids
@@ -169,6 +181,35 @@ def test_resolve_disabled_reasons(tmp_path, monkeypatch):
         monkeypatch.undo()
         refresh_capabilities()
     assert eff.disabled["separate"] == "Model not downloaded yet"
+
+
+def test_resolve_disables_unimplemented_ops():
+    """M4c Task 3: an op that is *available* (modules/models present) but has
+    no runner implementation must not reach the pipeline — it goes to
+    ``disabled`` with "Coming in a later update" instead of raising
+    NotImplementedError."""
+    from backend.operations.impl import IMPLEMENTATIONS
+    from backend.operations.registry import OPERATIONS, PRESETS
+    from backend.operations.rules import resolve
+
+    eff = resolve(PRESETS["podcast"]["ops"], _all_available())
+    ids = {op_id for op_id, _ in eff.ops}
+    assert ids <= set(IMPLEMENTATIONS)
+    assert {"denoise", "silence"} <= set(eff.disabled)
+    assert eff.disabled["denoise"] == "Coming in a later update"
+    assert eff.disabled["silence"] == "Coming in a later update"
+    # the runnable part keeps the new effective order
+    assert [op_id for op_id, _ in eff.ops] == [
+        "highpass", "dehum", "declick", "enhance", "loudness"
+    ]
+    # explicit opt-in to an unimplemented op gets the same graceful path
+    eff2 = resolve({"separate": {}, "loudness": {}}, _all_available(),
+                   {"loudness"})
+    assert [op_id for op_id, _ in eff2.ops] == ["loudness"]
+    assert eff2.disabled["separate"] == "Coming in a later update"
+    # planned ops keep their own reason
+    eff3 = resolve({"dereverb": {}}, _all_available(), {"dereverb"})
+    assert eff3.disabled == {"dereverb": "Coming later"}
 
 
 # ---- API --------------------------------------------------------------------
@@ -246,8 +287,11 @@ def test_resolve_endpoint_karaoke(tmp_path):
     )
     assert r.status_code == 200
     body = r.json()
-    assert [o["id"] for o in body["ops"]] == ["separate"]
-    assert set(body["disabled"]) == {"denoise", "enhance", "silence"}
+    # separate/denoise/silence have no implementation yet → disabled with
+    # "Coming in a later update"; karaoke conflict can't fire without
+    # separate running, so implemented ops still run.
+    assert [o["id"] for o in body["ops"]] == ["enhance"]
+    assert set(body["disabled"]) == {"separate", "denoise", "silence"}
 
 
 def test_resolve_endpoint_422(tmp_path):

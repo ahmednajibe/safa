@@ -114,6 +114,9 @@ def test_dehum_frequency_param_honoured(tmp_path):
 
 
 def test_declick_removes_clicks(tmp_path):
+    """Digital crackle (single-sample spikes) — the ffmpeg ``adeclick``
+    path (``mode="crackle"``). Mouth-click removal is covered in
+    test_mouthclick.py."""
     rng = np.random.default_rng(7)
     sig = _sine(440, seconds=2.0, amp=0.1)
     clicks = rng.choice(np.arange(4800, len(sig) - 4800), size=20,
@@ -123,7 +126,8 @@ def test_declick_removes_clicks(tmp_path):
     before = int((np.abs(sig) > 0.5).sum())
     assert before >= 20
 
-    res = _run("declick", src, tmp_path, {"sensitivity": "normal"})
+    res = _run("declick", src, tmp_path,
+               {"mode": "crackle", "sensitivity": "normal"})
 
     after_sig, _ = sf.read(str(res.path), dtype="float32")
     after = int((np.abs(after_sig) > 0.5).sum())
