@@ -20,10 +20,11 @@ from pydantic import BaseModel
 
 from backend.api.errors import err
 from backend.core.capabilities import detect_capabilities
+from backend.core.messages import MESSAGES as _MSG
 from backend.db import connect
 from backend.jobs.models import TERMINAL, Job
 from backend.media.encode import AUDIO_FORMATS
-from backend.operations.rules import resolve, unavailable_code
+from backend.operations.rules import ParamError, resolve, unavailable_code
 from backend.operations.registry import OPERATIONS
 from backend.pipeline.device import gpu_usable
 
@@ -31,19 +32,6 @@ router = APIRouter()
 
 _POLL_S = 0.25
 _HEARTBEAT_S = 15.0
-
-_MSG = {
-    "media_not_found": "This file was deleted or never existed.",
-    "job_not_found": "This job was deleted or never existed.",
-    "gpu_unavailable": "The graphics card isn't available on this computer.",
-    "bad_device": "Invalid device.",
-    "bad_output": "Unknown audio format.",
-    "bad_preview": "The preview must be between 1 and 60 seconds.",
-    "no_such_stream": "This file has no audio track with that number.",
-    "not_terminal": "This job is still active.",
-    "not_retryable": "Only failed, cancelled or interrupted jobs can be retried.",
-    "timeline_not_found": "The timeline isn't available for this job yet.",
-}
 
 
 def _store(request: Request):
@@ -126,6 +114,8 @@ def create_job(request: Request, body: JobRequest):
         return err(422, "bad_request", str(exc))
     try:
         eff = resolve(selection, _availability())
+    except ParamError as exc:
+        return err(422, "bad_param", str(exc), params=exc.params)
     except ValueError as exc:
         return err(422, "bad_request", str(exc))
     # Empty resolved ops = pass-through conversion — allowed.
@@ -171,6 +161,14 @@ def create_job(request: Request, body: JobRequest):
         device=device,
         audio_stream=audio_stream,
     )
+    if eff.disabled:
+        # Some selected ops were dropped (conflict/availability): record it
+        # as a job warning so the UI can show it after a reconnect too.
+        store.add_warning(
+            job.id, "preset_partial",
+            {"skipped_op_ids": sorted(eff.disabled)},
+        )
+        job = store.get(job.id)
     request.app.state.supervisor.wake()
     payload = _job_payload(store, job)
     payload["disabled"] = eff.disabled

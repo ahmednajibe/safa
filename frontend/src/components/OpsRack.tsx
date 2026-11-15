@@ -46,10 +46,10 @@ function OpRow({ op, health }: { op: OpSpec; health: Health | null }) {
         <p className="mt-0.5 line-clamp-2 text-small leading-snug text-faint">
           {op.description}
         </p>
-        {!op.available && op.unavailable_reason && (
+        {!op.available && op.unavailable_code && (
           <div className="mt-1.5">
             <span className="pill h-auto min-h-6 max-w-full whitespace-normal py-0.5 leading-snug">
-              {UNAVAILABLE_TEXT[op.unavailable_reason] ?? "Not available"}
+              {UNAVAILABLE_TEXT[op.unavailable_code] ?? "Not available"}
             </span>
           </div>
         )}

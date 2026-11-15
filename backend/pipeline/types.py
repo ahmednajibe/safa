@@ -33,6 +33,12 @@ class Progress:
     overall_pct: float | None
     message: str | None = None
     device: str | None = None
+    # SPEC §11: the English ``message`` is only a fallback — the frontend
+    # translates via ``message_code`` + ``message_params``.
+    message_code: str | None = None
+    message_params: dict | None = None
+    warning_code: str | None = None
+    warning_params: dict | None = None
 
 
 ProgressCb = Callable[[Progress], None]

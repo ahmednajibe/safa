@@ -17,9 +17,10 @@ from backend.media.timeline import Timeline
 from backend.operations.registry import OPERATIONS
 from backend.pipeline.types import JobDevice, OutputFile
 
-# ``ctx.report(stage_pct 0..1 | None, message | None)`` — the runner turns it
-# into a Progress row for the current stage.
-ReportFn = Callable[[float | None, str | None], None]
+# ``ctx.report(stage_pct 0..1 | None, message | None, message_code | None,
+# message_params | None)`` — the runner turns it into a Progress row for
+# the current stage. ``*msg(code, **kw)`` splats straight into args 2–4.
+ReportFn = Callable[..., None]
 
 
 @dataclass
@@ -46,6 +47,10 @@ class OpResult:
     actual_device: JobDevice = "cpu"
     fallback_reason: str | None = None
     message: str | None = None
+    message_code: str | None = None
+    message_params: dict | None = None
+    warning_code: str | None = None
+    warning_params: dict | None = None
     timeline: Timeline | None = None
     extra_outputs: list[OutputFile] = field(default_factory=list)
 

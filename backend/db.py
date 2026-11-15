@@ -59,13 +59,19 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return con
 
 
-# Columns added in M3b; applied to M2-era DBs via ALTER TABLE (idempotent).
+# Columns added after M2; applied to older DBs via ALTER TABLE (idempotent).
+# M3b set, then M5's message-code columns (SPEC §11).
 _JOBS_NEW_COLUMNS = (
     ("requested_device", "TEXT"),
     ("audio_stream", "INT"),
     ("cancel_requested", "INT DEFAULT 0"),
     ("stages_json", "TEXT"),
     ("retry_of", "TEXT"),
+    ("message_code", "TEXT"),
+    ("message_params_json", "TEXT"),
+    ("error_code", "TEXT"),
+    ("error_params_json", "TEXT"),
+    ("warnings_json", "TEXT"),
 )
 
 

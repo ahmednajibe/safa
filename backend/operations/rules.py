@@ -23,10 +23,20 @@ REASON_PLANNED = "Coming later"
 REASON_NOT_IMPLEMENTED = "Coming in a later update"
 
 
+class ParamError(ValueError):
+    """A params validation failure carrying SPEC §11 ``{param,min,max}``
+    so the API can answer with a coded error instead of bare English."""
+
+    def __init__(self, text: str, params: dict):
+        super().__init__(text)
+        self.params = params
+
+
 @dataclass
 class Effective:
     ops: list[tuple[str, dict]]
-    disabled: dict[str, str]
+    # op_id -> {"code", "message", "blocker_op_id"} (SPEC §11)
+    disabled: dict[str, dict]
 
 
 def validate_params(op_id: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -40,9 +50,15 @@ def validate_params(op_id: str, params: dict[str, Any]) -> dict[str, Any]:
     for key, value in (params or {}).items():
         p = schema.get(key)
         if p is None:
-            raise ValueError(f"{spec.name}: unknown setting '{key}'")
+            raise ParamError(
+                f"{spec.name}: unknown setting '{key}'", {"param": key}
+            )
         merged[key] = _validate_value(spec, p, value)
     return merged
+
+
+def _param_error(text: str, p: ParamSpec) -> ParamError:
+    return ParamError(text, {"param": p.key, "min": p.min, "max": p.max})
 
 
 def _validate_value(spec: OpSpec, p: ParamSpec, value: Any) -> Any:
@@ -51,33 +67,38 @@ def _validate_value(spec: OpSpec, p: ParamSpec, value: Any) -> Any:
         # e.g. trim end_s = until the end.
         if p.default is None:
             return None
-        raise ValueError(f"{spec.name}: '{p.label}' needs a value")
+        raise _param_error(f"{spec.name}: '{p.label}' needs a value", p)
     if p.type == "bool":
         if not isinstance(value, bool):
-            raise ValueError(f"{spec.name}: '{p.label}' must be on or off")
+            raise _param_error(
+                f"{spec.name}: '{p.label}' must be on or off", p
+            )
         return value
     if p.type == "number":
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"{spec.name}: '{p.label}' must be a number")
+            raise _param_error(
+                f"{spec.name}: '{p.label}' must be a number", p
+            )
         v = float(value)
         if p.min is not None and v < p.min:
-            raise ValueError(
-                f"{spec.name}: '{p.label}' must be at least {p.min}"
+            raise _param_error(
+                f"{spec.name}: '{p.label}' must be at least {p.min}", p
             )
         if p.max is not None and v > p.max:
-            raise ValueError(
-                f"{spec.name}: '{p.label}' must be at most {p.max}"
+            raise _param_error(
+                f"{spec.name}: '{p.label}' must be at most {p.max}", p
             )
         return value
     if p.type == "select":
         allowed = {o["value"] for o in (p.options or [])}
         if value not in allowed:
-            raise ValueError(
+            raise _param_error(
                 f"{spec.name}: '{p.label}' must be one of "
-                + ", ".join(repr(o["value"]) for o in (p.options or []))
+                + ", ".join(repr(o["value"]) for o in (p.options or [])),
+                p,
             )
         return value
-    raise ValueError(f"{spec.name}: bad schema for '{p.key}'")
+    raise _param_error(f"{spec.name}: bad schema for '{p.key}'", p)
 
 
 def unavailable_code(
@@ -93,14 +114,23 @@ def unavailable_code(
     return None
 
 
-def _unavailable_reason(op: OpSpec) -> str:
-    """Human sentence for an op the caller marked unavailable."""
+def _disabled(code: str, message: str, blocker: str | None = None) -> dict:
+    """SPEC §11 disabled entry: machine code + English fallback + who blocks."""
+    return {"code": code, "message": message, "blocker_op_id": blocker}
+
+
+def _unavailable_entry(op: OpSpec) -> dict:
+    """Disabled entry for an op the caller marked unavailable."""
     from backend.core.capabilities import detect_capabilities
 
     caps = detect_capabilities()
-    if unavailable_code(op, caps.modules, caps.models) == "model_missing":
-        return REASON_MODEL_MISSING
-    return REASON_NOT_AVAILABLE
+    code = unavailable_code(op, caps.modules, caps.models) or "unavailable"
+    reason = (
+        REASON_MODEL_MISSING
+        if code == "model_missing"
+        else REASON_NOT_AVAILABLE
+    )
+    return _disabled(code, reason)
 
 
 def resolve(
@@ -121,20 +151,22 @@ def resolve(
         from backend.operations.impl import IMPLEMENTATIONS
 
         implemented = set(IMPLEMENTATIONS)
-    disabled: dict[str, str] = {}
+    disabled: dict[str, dict] = {}
     merged: dict[str, dict] = {}
     for op_id, params in selection.items():
         spec = OPERATIONS.get(op_id)
         if spec is None:
             raise ValueError(f"Unknown operation: {op_id}")
         if spec.planned:
-            disabled[op_id] = REASON_PLANNED
+            disabled[op_id] = _disabled("planned", REASON_PLANNED)
             continue
         if not available.get(op_id, True):
-            disabled[op_id] = _unavailable_reason(spec)
+            disabled[op_id] = _unavailable_entry(spec)
             continue
         if op_id not in implemented:
-            disabled[op_id] = REASON_NOT_IMPLEMENTED
+            disabled[op_id] = _disabled(
+                "not_implemented", REASON_NOT_IMPLEMENTED
+            )
             continue
         merged[op_id] = validate_params(op_id, params)
 
@@ -146,7 +178,9 @@ def resolve(
             if op_id == "silence" and merged[op_id].get("mode") != "vad":
                 continue  # amplitude mode doesn't need speech
             del merged[op_id]
-            disabled[op_id] = reason
+            disabled[op_id] = _disabled(
+                "karaoke_speech_op", reason, blocker="separate"
+            )
 
     ordered = sorted(merged, key=lambda op_id: OPERATIONS[op_id].order)
     return Effective(ops=[(op_id, merged[op_id]) for op_id in ordered], disabled=disabled)

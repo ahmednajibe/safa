@@ -1,9 +1,8 @@
 """M4a Task 5: the DSP chain end-to-end through /api/jobs on the user's
 real recording (Review Focus 5), plus the Podcast-cleanup-minus-unimplemented
-preset. The chain output is also left at ``data/review/m4a_chain.wav`` for
-the orchestrator's listening check."""
+preset. Review artifacts belong in ``tmp_path`` (M5 rule: pytest never
+writes to ``data/review`` — ``scripts/make_review_files.py`` owns it)."""
 import json
-import shutil
 import threading
 from pathlib import Path
 from urllib.parse import quote
@@ -12,7 +11,6 @@ import pytest
 import soundfile as sf
 from fastapi.testclient import TestClient
 
-from backend.core.paths import DATA_DIR
 from backend.core.settings import Settings
 from backend.main import create_app
 from backend.media.loudness import integrated_lufs, true_peak_db
@@ -20,7 +18,6 @@ from backend.media.probe import probe
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
 REAL = Path(__file__).parent / "fixtures" / "real"
-REVIEW_OUT = DATA_DIR / "review" / "m4a_chain.wav"
 
 
 def _client(tmp_path) -> TestClient:
@@ -121,10 +118,6 @@ def test_dsp_chain_e2e_real_recording(tmp_path, real_dir):
         lufs = integrated_lufs(stored)
         assert lufs is not None and abs(lufs - (-16.0)) <= 0.5
         assert true_peak_db(stored) <= -0.9
-
-        # leave a copy for the orchestrator's listening check (data/ ignored)
-        REVIEW_OUT.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(stored, REVIEW_OUT)
 
 
 def test_podcast_preset_subset_e2e(tmp_path, real_dir):

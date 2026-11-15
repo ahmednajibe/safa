@@ -17,14 +17,38 @@ from pathlib import Path
 
 import psutil
 
+from backend.core.messages import msg
 from backend.core.paths import ROOT
 from backend.core.settings import Settings
 from backend.jobs.models import TERMINAL, Job
 from backend.jobs.store import JobStore
 from backend.media.storage import job_dir
 
-_INTERRUPTED_MSG = "Stopped because the app was closed"
-_CRASH_MSG = "The processing step stopped unexpectedly"
+
+def _finish_interrupted(store: JobStore, job_id: str) -> None:
+    text, code, params = msg("job_interrupted")
+    store.finish(
+        job_id, "interrupted", message=text,
+        message_code=code, message_params=params,
+    )
+
+
+def _finish_crashed(store: JobStore, job_id: str) -> None:
+    # The worker died without writing a state — the job just "stopped
+    # unexpectedly"; job_failed has no op_id because no stage reported.
+    store.finish(
+        job_id, "failed",
+        error="The processing step stopped unexpectedly",
+        error_code="job_failed", error_params={},
+    )
+
+
+def _finish_cancelled(store: JobStore, job_id: str) -> None:
+    text, code, params = msg("job_cancelled")
+    store.finish(
+        job_id, "cancelled", message=text,
+        message_code=code, message_params=params,
+    )
 
 if sys.platform == "win32":
     # Own process group + no console window, so the tree can be killed
@@ -102,9 +126,7 @@ class Supervisor:
         if job_id:
             job = self.store.get(job_id)
             if job is not None and job.state not in TERMINAL:
-                self.store.finish(
-                    job_id, "interrupted", message=_INTERRUPTED_MSG
-                )
+                _finish_interrupted(self.store, job_id)
 
     def wake(self) -> None:
         """Nudge the loop after job creation."""
@@ -117,7 +139,7 @@ class Supervisor:
         self.store.request_cancel(job_id)
         job = self.store.get(job_id)
         if job is not None and job.state == "queued":
-            self.store.finish(job_id, "cancelled")
+            _finish_cancelled(self.store, job_id)
             return
         with self._lock:
             proc = (
@@ -155,7 +177,7 @@ class Supervisor:
     def _mark_cancelled(self, job_id: str) -> None:
         """Mark cancelled and drop partial outputs — a killed worker can't
         clean up after itself (Review Focus 1)."""
-        self.store.finish(job_id, "cancelled")
+        _finish_cancelled(self.store, job_id)
         for sub in ("output", "work"):
             d = self.settings.data_dir / "jobs" / job_id / sub
             if not d.is_dir():
@@ -184,9 +206,7 @@ class Supervisor:
                 # A spawn failure must not kill the supervisor thread —
                 # the next queued job still gets its turn.
                 try:
-                    self.store.finish(
-                        job.id, "failed", error=_CRASH_MSG
-                    )
+                    _finish_crashed(self.store, job.id)
                 except Exception:
                     pass
 
@@ -229,9 +249,7 @@ class Supervisor:
             return
         if self._stop.is_set():
             if job.state not in TERMINAL:
-                self.store.finish(
-                    job_id, "interrupted", message=_INTERRUPTED_MSG
-                )
+                _finish_interrupted(self.store, job_id)
             return
         if self.store.cancel_requested(job_id):
             # Covers the kill race too: a worker that caught its ffmpeg dying
@@ -240,4 +258,4 @@ class Supervisor:
                 self._mark_cancelled(job_id)
             return
         if job.state not in TERMINAL:
-            self.store.finish(job_id, "failed", error=_CRASH_MSG)
+            _finish_crashed(self.store, job_id)

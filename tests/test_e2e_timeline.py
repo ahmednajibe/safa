@@ -3,11 +3,10 @@
 clip.mp4 with trim(1,8) + speed 1.25 + loudness must complete with the
 output mp4 at the timeline's out_duration; /api/jobs/{id}/timeline serves
 the map. A trimmed audio-only real recording also leaves timeline.json.
-The produced mp4 is copied to ``data/review/m4b_clip.mp4`` for the
-orchestrator's watch check.
+Review artifacts belong in ``tmp_path`` (M5 rule: pytest never writes to
+``data/review`` — ``scripts/make_review_files.py`` owns that directory).
 """
 import json
-import shutil
 import threading
 from pathlib import Path
 from urllib.parse import quote
@@ -15,14 +14,12 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.core.paths import DATA_DIR
 from backend.core.settings import Settings
 from backend.main import create_app
 from backend.media.probe import probe
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
 CLIP = GENERATED / "clip.mp4"
-REVIEW_OUT = DATA_DIR / "review" / "m4b_clip.mp4"
 
 
 def _client(tmp_path) -> TestClient:
@@ -120,10 +117,6 @@ def test_trim_speed_loudness_video_job(tmp_path):
         assert p.video[0].duration_s == pytest.approx(out_dur, abs=frame)
         assert p.audio[0].duration_s == pytest.approx(out_dur, abs=frame)
         assert p.video[0].codec == "h264"
-
-        # leave a copy for the orchestrator's watch check (data/ ignored)
-        REVIEW_OUT.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(stored, REVIEW_OUT)
 
 
 def test_timeline_404_until_completed(tmp_path):

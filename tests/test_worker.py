@@ -12,6 +12,7 @@ import pytest
 from backend.db import connect, init_db
 from backend.jobs.store import JobStore
 from backend.media.probe import probe
+from backend.operations.impl import IMPLEMENTATIONS
 from backend.worker import main as worker_main
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
@@ -108,6 +109,13 @@ def test_worker_failing_op_marks_failed(tmp_path, monkeypatch):
     db, data = _setup(tmp_path, monkeypatch)
     _media(db, "m1", ARABIC_WAV)
     store = JobStore(db)
+
+    # silence is implemented now (M5); force the failure deterministically
+    # so the test doesn't depend on some op being unimplemented.
+    def _boom(in_wav, params, ctx):
+        raise NotImplementedError("silence not implemented yet")
+
+    monkeypatch.setitem(IMPLEMENTATIONS, "silence", _boom)
     j = _job(store, "m1", ops=[("silence", {})])
 
     rc = worker_main([j.id])

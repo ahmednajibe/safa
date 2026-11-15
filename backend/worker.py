@@ -16,6 +16,7 @@ import sys
 import traceback
 from pathlib import Path
 
+from backend.core.messages import msg
 from backend.core.proc import ProcError
 
 
@@ -166,6 +167,10 @@ def main(argv: list[str]) -> int:
         def _on_progress(p: Progress) -> None:
             try:
                 store.update_progress(job_id, p)
+                if p.warning_code:
+                    store.add_warning(
+                        job_id, p.warning_code, p.warning_params
+                    )
                 if p.device:
                     entry = stage_by_name.get(p.stage)
                     if entry and entry.get("device") != p.device:
@@ -191,12 +196,20 @@ def main(argv: list[str]) -> int:
         )
         for f in outputs:
             store.add_file(job_id, f)
-        store.finish(job_id, "completed", message="Done")
+        text, code, params = msg("job_done")
+        store.finish(
+            job_id, "completed", message=text,
+            message_code=code, message_params=params,
+        )
         return 0
     except CancelledError:
         _clear_dir(job_root / "output")
         _clear_dir(job_root / "work")
-        store.finish(job_id, "cancelled")
+        text, code, params = msg("job_cancelled")
+        store.finish(
+            job_id, "cancelled", message=text,
+            message_code=code, message_params=params,
+        )
         return 0
     except Exception as exc:  # noqa: BLE001 — every failure becomes job.error
         try:
@@ -204,7 +217,23 @@ def main(argv: list[str]) -> int:
                 fh.write(traceback.format_exc())
         except OSError:
             pass
-        store.finish(job_id, "failed", error=_short_error(exc))
+        # SPEC §11 job_failed{op_id?}: the stage the job died in identifies
+        # the op when the stage name maps back to the snapshot's op ids.
+        failed_op = None
+        try:
+            cur = store.get(job_id)
+            if cur and cur.stage:
+                for s in cur.stages:
+                    if s.get("name") == cur.stage:
+                        failed_op = s.get("id")
+                        break
+        except Exception:
+            pass
+        store.finish(
+            job_id, "failed", error=_short_error(exc),
+            error_code="job_failed",
+            error_params={"op_id": failed_op} if failed_op else {},
+        )
         return 1
 
 

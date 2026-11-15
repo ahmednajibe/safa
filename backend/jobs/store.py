@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.core.capabilities import detect_capabilities
+from backend.core.messages import msg
 from backend.db import connect
 from backend.jobs.models import Job
 from backend.media.storage import new_id
@@ -22,7 +23,6 @@ from backend.pipeline.device import resolve_device
 from backend.pipeline.types import OutputFile, Progress
 
 _THROTTLE_S = 0.25  # max 4 progress writes per second per job
-_INTERRUPTED_MSG = "Stopped because the app was closed"
 
 
 def _utcnow() -> str:
@@ -120,6 +120,20 @@ class JobStore:
             con.commit()
         finally:
             con.close()
+        # SPEC §11: the queue position rides in the job's message envelope
+        # so a reconnect can say "position N" without a second query.
+        pos = self.queue_position(job_id)
+        text, code, params = msg("job_queued", position=pos or 1)
+        con = self._con()
+        try:
+            con.execute(
+                "UPDATE jobs SET message=?, message_code=?,"
+                " message_params_json=? WHERE id=?",
+                (text, code, json.dumps(params), job_id),
+            )
+            con.commit()
+        finally:
+            con.close()
         job = self.get(job_id)
         assert job is not None
         return job
@@ -197,7 +211,8 @@ class JobStore:
         try:
             con.execute(
                 "UPDATE jobs SET stage=?, stage_idx=?, total_stages=?,"
-                " stage_pct=?, overall_pct=?, device=?, message=?"
+                " stage_pct=?, overall_pct=?, device=?, message=?,"
+                " message_code=?, message_params_json=?"
                 " WHERE id=?",
                 (
                     p.stage,
@@ -207,6 +222,12 @@ class JobStore:
                     p.overall_pct,
                     p.device,
                     p.message,
+                    p.message_code,
+                    (
+                        json.dumps(p.message_params)
+                        if p.message_params is not None
+                        else None
+                    ),
                     job_id,
                 ),
             )
@@ -248,6 +269,11 @@ class JobStore:
         state: str,
         error: str | None = None,
         message: str | None = None,
+        *,
+        error_code: str | None = None,
+        error_params: dict | None = None,
+        message_code: str | None = None,
+        message_params: dict | None = None,
     ) -> None:
         con = self._con()
         try:
@@ -256,10 +282,49 @@ class JobStore:
             # one allowed transition is failed -> cancelled (cancel intent
             # wins when the worker "fails" because we killed its ffmpeg).
             con.execute(
-                "UPDATE jobs SET state=?, error=?, message=?, finished_at=?"
+                "UPDATE jobs SET state=?, error=?, message=?,"
+                " error_code=?, error_params_json=?,"
+                " message_code=?, message_params_json=?, finished_at=?"
                 " WHERE id=? AND state NOT IN"
                 " ('completed','cancelled','interrupted')",
-                (state, error, message, _utcnow(), job_id),
+                (
+                    state,
+                    error,
+                    message,
+                    error_code,
+                    json.dumps(error_params) if error_params else None,
+                    message_code,
+                    json.dumps(message_params) if message_params else None,
+                    _utcnow(),
+                    job_id,
+                ),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+    def add_warning(
+        self, job_id: str, code: str, params: dict | None = None
+    ) -> None:
+        """Append ``{warning_code, warning_params}`` to the job's warnings
+        list (SPEC §11) — e.g. a GPU stage that fell back to CPU."""
+        con = self._con()
+        try:
+            row = con.execute(
+                "SELECT warnings_json FROM jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            if not row:
+                return
+            try:
+                warnings = json.loads(row["warnings_json"] or "[]")
+            except json.JSONDecodeError:
+                warnings = []
+            warnings.append(
+                {"warning_code": code, "warning_params": params or {}}
+            )
+            con.execute(
+                "UPDATE jobs SET warnings_json=? WHERE id=?",
+                (json.dumps(warnings), job_id),
             )
             con.commit()
         finally:
@@ -290,10 +355,12 @@ class JobStore:
         ``interrupted``. Queued jobs stay queued for the new supervisor."""
         con = self._con()
         try:
+            text, code, params = msg("job_interrupted")
             cur = con.execute(
                 "UPDATE jobs SET state='interrupted', message=?,"
+                " message_code=?, message_params_json=?,"
                 " finished_at=? WHERE state='running'",
-                (_INTERRUPTED_MSG, _utcnow()),
+                (text, code, json.dumps(params), _utcnow()),
             )
             con.commit()
             return cur.rowcount

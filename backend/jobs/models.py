@@ -42,6 +42,12 @@ class Job:
     device: str | None = None
     message: str | None = None
     error: str | None = None
+    # SPEC §11 envelopes: codes + raw params travel with the English text.
+    message_code: str | None = None
+    message_params: dict = field(default_factory=dict)
+    error_code: str | None = None
+    error_params: dict = field(default_factory=dict)
+    warnings: list[dict] = field(default_factory=list)
     stages: list[dict] = field(default_factory=list)
     created_at: str = ""
     started_at: str | None = None
@@ -73,6 +79,11 @@ class Job:
             device=r.get("device"),
             message=r.get("message"),
             error=r.get("error"),
+            message_code=r.get("message_code"),
+            message_params=_json(r.get("message_params_json"), {}),
+            error_code=r.get("error_code"),
+            error_params=_json(r.get("error_params_json"), {}),
+            warnings=_json(r.get("warnings_json"), []),
             stages=_json(r.get("stages_json"), []),
             created_at=r.get("created_at") or "",
             started_at=r.get("started_at"),

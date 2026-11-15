@@ -27,6 +27,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
 from backend.api.errors import err
+from backend.core.messages import MESSAGES
 from backend.db import connect
 from backend.media.decode import decode_to_wav
 from backend.media.encode import make_playback_copy
@@ -54,16 +55,7 @@ _MIME = {
     ".webm": "video/webm", ".avi": "video/x-msvideo",
 }
 
-_MSG = {
-    "unsupported_type": "This file type isn't supported. Try WAV, MP3, MP4\u2026",
-    "no_audio": "This video has no audio track. Choose another file.",
-    "unreadable": "We couldn't read this file. It may be damaged or not a media file.",
-    "too_large": "This file is too large.",
-    "media_not_found": "This file was deleted or never existed.",
-    "in_use": "A running job is using this file.",
-    "no_such_stream": "This file has no audio track with that number.",
-    "prep_failed": "We couldn't read the audio in this file.",
-}
+_MSG = MESSAGES  # SPEC §11: single source in backend/core/messages.py
 
 
 def _jsonable_probe(row) -> dict:
@@ -149,10 +141,14 @@ def _prepare(db_path: Path, mdir: Path, media_id: str, stream_index: int) -> Non
 
 
 def _insufficient(needed: int, free: int) -> JSONResponse:
+    needed_gb = round(needed / 1e9, 1)
+    free_gb = round(free / 1e9, 1)
     return err(
         507, "insufficient_storage",
-        f"Not enough disk space: needs about {needed / 1e9:.1f} GB,"
-        f" {free / 1e9:.1f} GB free.",
+        MESSAGES["insufficient_storage"].format(
+            needed_gb=needed_gb, free_gb=free_gb
+        ),
+        params={"needed_gb": needed_gb, "free_gb": free_gb},
     )
 
 
@@ -252,7 +248,7 @@ async def upload_media(request: Request):
         return err(413, "too_large", _MSG["too_large"])
     except ClientDisconnect:
         shutil.rmtree(mdir, ignore_errors=True)
-        return err(400, "client_disconnected", "The upload was interrupted.")
+        return err(400, "client_disconnected", _MSG["client_disconnected"])
     except Exception:
         shutil.rmtree(mdir, ignore_errors=True)
         raise
@@ -303,7 +299,7 @@ def get_peaks(request: Request, media_id: str, stream: int | None = None):
         if not peaks_path.is_file():
             if p.get("prep_error"):
                 return err(500, "prep_failed", _MSG["prep_failed"])
-            return err(202, "processing", "Still preparing this file.")
+            return err(202, "processing", _MSG["processing"])
         return JSONResponse(json.loads(peaks_path.read_text(encoding="utf-8")))
 
     if stream not in {a["index"] for a in audio}:
@@ -332,7 +328,7 @@ def get_playback(request: Request, media_id: str):
     if not playback.is_file():
         if _jsonable_probe(row).get("prep_error"):
             return err(500, "prep_failed", _MSG["prep_failed"])
-        return err(202, "processing", "Still preparing this file.")
+        return err(202, "processing", _MSG["processing"])
     return _file_response(playback, request, "audio/mp4")
 
 

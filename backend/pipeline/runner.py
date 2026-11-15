@@ -17,6 +17,7 @@ import soundfile as sf
 
 from backend.core.capabilities import detect_capabilities
 from backend.core.ffmpeg import has_encoder
+from backend.core.messages import msg
 from backend.media.decode import decode_to_wav
 from backend.media.encode import encode_audio, remux_video
 from backend.media.probe import MediaProbe
@@ -38,8 +39,10 @@ from backend.pipeline.types import (
 )
 
 # A stage's emit(): report(stage_pct 0..1 | None, message | None,
-# device | None). Bound to one stage's name/idx by the loop below.
-StageEmit = Callable[[float | None, str | None, str | None], None]
+# message_code | None, message_params | None, device | None, ...).
+# Bound to one stage's name/idx by the loop below. ``*msg(code, **kw)``
+# splats straight into args 1–3 after the pct (SPEC §11).
+StageEmit = Callable[..., None]
 
 
 def _op_stage_name(op_id: str) -> str:
@@ -88,8 +91,12 @@ def run_pipeline(
     def _emit(name: str, idx: int, dev: str) -> StageEmit:
         def emit(
             pct: float | None = None,
-            msg: str | None = None,
-            dev_actual: str | None = None,
+            message: str | None = None,
+            message_code: str | None = None,
+            message_params: dict | None = None,
+            device: str | None = None,
+            warning_code: str | None = None,
+            warning_params: dict | None = None,
         ) -> None:
             on_progress(
                 Progress(
@@ -100,8 +107,12 @@ def run_pipeline(
                     overall_pct=(
                         (idx + min(pct or 0.0, 1.0)) / total
                     ),
-                    device=dev_actual or dev,
-                    message=msg,
+                    device=device or dev,
+                    message=message,
+                    message_code=message_code,
+                    message_params=message_params,
+                    warning_code=warning_code,
+                    warning_params=warning_params,
                 )
             )
 
@@ -143,14 +154,9 @@ def run_pipeline(
                 script_path=work / "video_filter.txt",
             )
             if enc == "libx264" and want_nvenc:
-                emit(
-                    1.0,
-                    "Graphics encoder failed — encoded on the"
-                    " processor instead",
-                    "cpu",
-                )
+                emit(1.0, *msg("nvenc_fallback"), "cpu")
             elif enc == "h264_nvenc":
-                emit(1.0, None, "gpu")
+                emit(1.0, device="gpu")
         outputs.append(
             OutputFile(dst.name, "video", dst, dst.stat().st_size)
         )
@@ -170,7 +176,7 @@ def run_pipeline(
                 duration_s=info.frames / info.samplerate,
                 sample_rate=info.samplerate,
                 channels=info.channels,
-                report=lambda p, m: emit(p, m),
+                report=lambda p, m=None, c=None, pr=None: emit(p, m, c, pr),
                 should_cancel=should_cancel,
                 caps=caps,
                 fps=fps,
@@ -183,11 +189,21 @@ def run_pipeline(
             if result.timeline is not None:
                 current["timeline"] = result.timeline
             # Report the device's reality + any op message/fallback reason
-            # (SPEC §9: worker persists actual_device via this Progress row).
+            # (SPEC §9: worker persists actual_device via this Progress row;
+            # SPEC §11: a stage off its planned device is a job warning).
+            warning_code = result.warning_code
+            warning_params = result.warning_params
+            if result.actual_device != dev or result.fallback_reason:
+                warning_code = "gpu_fallback"
+                warning_params = {"op_id": op_id}
             emit(
                 1.0,
                 result.message or result.fallback_reason,
+                result.message_code,
+                result.message_params,
                 result.actual_device,
+                warning_code=warning_code,
+                warning_params=warning_params,
             )
             if prev != out_wav and prev.parent == work:
                 prev.unlink(missing_ok=True)  # previous intermediate dies

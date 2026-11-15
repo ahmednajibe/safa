@@ -56,9 +56,43 @@ def test_names_match_ui_design():
     assert OPERATIONS["denoise"].name == "Reduce background noise"
     assert OPERATIONS["enhance"].name == "Polish voice"
     assert OPERATIONS["subtitles"].name == "Create subtitles"
+    assert OPERATIONS["silence"].name == "Cut silence"
     assert OPERATIONS["silence"].description == (
-        "Tightens long gaps while leaving natural breathing room."
+        "Removes the silent parts so only the speech is left"
+        " (or just shortens long pauses)."
     )
+
+
+def test_silence_params_match_spec10():
+    """M5 Task 1: SPEC §10 — action remove by default, exact keys/ranges."""
+    from backend.operations.registry import OPERATIONS
+
+    params = {p.key: p for p in OPERATIONS["silence"].params}
+    assert params["action"].default == "remove"
+    assert {o["value"] for o in params["action"].options} == {
+        "remove", "shorten"
+    }
+    assert params["min_silence_s"].default == 0.3
+    assert params["min_silence_s"].min == 0.1
+    assert params["min_silence_s"].max == 3.0
+    assert params["pad_s"].default == 0.1
+    assert params["pad_s"].min == 0
+    assert params["pad_s"].max == 0.5
+    assert params["keep_pause_s"].default == 0.25
+    assert params["mode"].default == "vad"
+    assert {o["value"] for o in params["mode"].options} == {
+        "vad", "amplitude"
+    }
+    assert params["threshold_db"].default == -40
+    # the M2-era max_pause_s semantics are gone (SPEC §10 overrides)
+    assert "max_pause_s" not in params
+
+
+def test_silence_presets_use_remove():
+    from backend.operations.registry import PRESETS
+
+    for key in ("podcast", "lecture", "jump_cut"):
+        assert PRESETS[key]["ops"]["silence"] == {"action": "remove"}, key
 
 
 def test_presets_reference_valid_ops_and_params():
@@ -106,7 +140,10 @@ def test_karaoke_conflicts():
     )
     assert [op_id for op_id, _ in eff.ops] == ["separate"]
     assert set(eff.disabled) == {"denoise", "enhance", "silence"}
-    assert "karaoke" in eff.disabled["denoise"].lower()
+    entry = eff.disabled["denoise"]
+    assert entry["code"] == "karaoke_speech_op"
+    assert entry["blocker_op_id"] == "separate"
+    assert "karaoke" in entry["message"].lower()
 
 
 def test_karaoke_keeps_amplitude_silence():
@@ -166,11 +203,14 @@ def test_resolve_disabled_reasons(tmp_path, monkeypatch):
     from backend.operations.rules import resolve
 
     eff = resolve({"enhance_ai": {}}, {"enhance_ai": True})
-    assert eff.disabled == {"enhance_ai": "Coming later"}
+    assert eff.disabled["enhance_ai"]["code"] == "planned"
+    assert eff.disabled["enhance_ai"]["message"] == "Coming later"
 
     # generic unavailable → machine reason
     eff = resolve({"separate": {}}, {"separate": False})
-    assert eff.disabled["separate"] == "Not available on this computer"
+    assert eff.disabled["separate"]["message"] == (
+        "Not available on this computer"
+    )
 
     # model file missing → model reason (needs real detection)
     monkeypatch.setattr(manifest, "MODELS_DIR", tmp_path)
@@ -180,14 +220,16 @@ def test_resolve_disabled_reasons(tmp_path, monkeypatch):
     finally:
         monkeypatch.undo()
         refresh_capabilities()
-    assert eff.disabled["separate"] == "Model not downloaded yet"
+    entry = eff.disabled["separate"]
+    assert entry["code"] == "model_missing"
+    assert entry["message"] == "Model not downloaded yet"
 
 
 def test_resolve_disables_unimplemented_ops():
     """M4c Task 3: an op that is *available* (modules/models present) but has
     no runner implementation must not reach the pipeline — it goes to
     ``disabled`` with "Coming in a later update" instead of raising
-    NotImplementedError."""
+    NotImplementedError. (M5: silence is implemented and no longer drops.)"""
     from backend.operations.impl import IMPLEMENTATIONS
     from backend.operations.registry import OPERATIONS, PRESETS
     from backend.operations.rules import resolve
@@ -195,21 +237,21 @@ def test_resolve_disables_unimplemented_ops():
     eff = resolve(PRESETS["podcast"]["ops"], _all_available())
     ids = {op_id for op_id, _ in eff.ops}
     assert ids <= set(IMPLEMENTATIONS)
-    assert {"denoise", "silence"} <= set(eff.disabled)
-    assert eff.disabled["denoise"] == "Coming in a later update"
-    assert eff.disabled["silence"] == "Coming in a later update"
+    assert "denoise" in eff.disabled
+    assert eff.disabled["denoise"]["code"] == "not_implemented"
+    assert "silence" in ids  # implemented in M5
     # the runnable part keeps the new effective order
     assert [op_id for op_id, _ in eff.ops] == [
-        "highpass", "dehum", "declick", "enhance", "loudness"
+        "highpass", "dehum", "declick", "enhance", "silence", "loudness"
     ]
     # explicit opt-in to an unimplemented op gets the same graceful path
     eff2 = resolve({"separate": {}, "loudness": {}}, _all_available(),
                    {"loudness"})
     assert [op_id for op_id, _ in eff2.ops] == ["loudness"]
-    assert eff2.disabled["separate"] == "Coming in a later update"
+    assert eff2.disabled["separate"]["code"] == "not_implemented"
     # planned ops keep their own reason
     eff3 = resolve({"dereverb": {}}, _all_available(), {"dereverb"})
-    assert eff3.disabled == {"dereverb": "Coming later"}
+    assert eff3.disabled["dereverb"]["code"] == "planned"
 
 
 # ---- API --------------------------------------------------------------------
@@ -223,7 +265,7 @@ def test_operations_endpoint(tmp_path):
     assert len(ops) == 14
     assert [o["id"] for o in ops][:3] == ["trim", "channel", "highpass"]
     for op in ops:
-        assert "available" in op and "unavailable_reason" in op
+        assert "available" in op and "unavailable_code" in op
         assert "params" in op and "order" in op
     assert set(body["presets"]) == {
         "podcast", "remove_music", "echoey_room",
@@ -237,10 +279,10 @@ def test_operations_availability_on_this_machine(tmp_path):
     for op_id, op in ops.items():
         if op_id in ("dereverb", "enhance_ai"):
             assert op["available"] is False
-            assert op["unavailable_reason"] == "planned"
+            assert op["unavailable_code"] == "planned"
         else:
             assert op["available"] is True, op_id
-            assert op["unavailable_reason"] is None
+            assert op["unavailable_code"] is None
 
 
 def test_model_missing_marks_unavailable(tmp_path, monkeypatch):
@@ -255,9 +297,9 @@ def test_model_missing_marks_unavailable(tmp_path, monkeypatch):
         monkeypatch.undo()
         refresh_capabilities()
     assert ops["separate"]["available"] is False
-    assert ops["separate"]["unavailable_reason"] == "model_missing"
-    assert ops["denoise"]["unavailable_reason"] == "model_missing"
-    assert ops["subtitles"]["unavailable_reason"] == "model_missing"
+    assert ops["separate"]["unavailable_code"] == "model_missing"
+    assert ops["denoise"]["unavailable_code"] == "model_missing"
+    assert ops["subtitles"]["unavailable_code"] == "model_missing"
     # silero weights are bundled in the wheel → silence is not model-gated
     assert ops["silence"]["available"] is True
     assert ops["trim"]["available"] is True
@@ -287,11 +329,12 @@ def test_resolve_endpoint_karaoke(tmp_path):
     )
     assert r.status_code == 200
     body = r.json()
-    # separate/denoise/silence have no implementation yet → disabled with
-    # "Coming in a later update"; karaoke conflict can't fire without
-    # separate running, so implemented ops still run.
-    assert [o["id"] for o in body["ops"]] == ["enhance"]
-    assert set(body["disabled"]) == {"separate", "denoise", "silence"}
+    # separate/denoise have no implementation yet → disabled with
+    # "not_implemented"; silence is implemented (M5) and the karaoke
+    # conflict can't fire while separate itself doesn't run.
+    assert [o["id"] for o in body["ops"]] == ["enhance", "silence"]
+    assert set(body["disabled"]) == {"separate", "denoise"}
+    assert body["disabled"]["separate"]["code"] == "not_implemented"
 
 
 def test_resolve_endpoint_422(tmp_path):

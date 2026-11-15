@@ -22,6 +22,7 @@ import shutil
 from pathlib import Path
 from typing import Callable
 
+from backend.core.messages import msg
 from backend.media.ffmpeg_run import run_ffmpeg
 from backend.operations.base import OpContext, OpResult, stage_wav
 from backend.pipeline.types import CancelledError
@@ -29,7 +30,7 @@ from backend.pipeline.types import CancelledError
 _LRA = 11
 _MAX_GAIN_DB = 30.0
 _TRIM_TOLERANCE_LU = 0.25
-QUIET_MESSAGE = "Very quiet recording — raised as far as safely possible"
+_QUIET = msg("very_quiet_raised")  # (text, code, params) for OpResult
 _TARGETS = {"podcast": -16.0, "youtube": -14.0}
 _MEASURE_KEYS = (
     "input_i", "input_tp", "input_lra", "input_thresh", "target_offset",
@@ -89,12 +90,15 @@ def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
             raise CancelledError()
         shutil.copyfile(in_wav, out)
         ctx.report(1.0, None)
-        return OpResult(path=out, message=QUIET_MESSAGE)
+        return OpResult(
+            path=out, message=_QUIET[0],
+            message_code=_QUIET[1], message_params=_QUIET[2],
+        )
 
-    message = None
+    quiet = False
     if target_i - measured_i > _MAX_GAIN_DB:
         target_i = measured_i + _MAX_GAIN_DB
-        message = QUIET_MESSAGE
+        quiet = True
 
     run_ffmpeg(
         [
@@ -142,4 +146,9 @@ def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
         )
         os.replace(tmp, out)
     ctx.report(1.0, None)
-    return OpResult(path=out, message=message)
+    return OpResult(
+        path=out,
+        message=_QUIET[0] if quiet else None,
+        message_code=_QUIET[1] if quiet else None,
+        message_params=_QUIET[2] if quiet else None,
+    )

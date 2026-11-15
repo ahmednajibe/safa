@@ -58,7 +58,7 @@ export interface OpSpec {
   requires_models: string[];
   planned: boolean;
   available: boolean;
-  unavailable_reason: "planned" | "module_missing" | "model_missing" | null;
+  unavailable_code: "planned" | "module_missing" | "model_missing" | null;
 }
 
 export interface Preset {
@@ -71,7 +71,13 @@ export interface OperationsResponse {
   presets: Record<string, Preset>;
 }
 
+export interface DisabledOp {
+  code: string;
+  message: string;
+  blocker_op_id: string | null;
+}
+
 export interface ResolveResponse {
   ops: { id: string; params: Record<string, unknown> }[];
-  disabled: Record<string, string>;
+  disabled: Record<string, DisabledOp>;
 }

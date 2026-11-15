@@ -2,12 +2,13 @@
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
+from backend.api.errors import err
 from backend.core.capabilities import detect_capabilities
 from backend.operations.registry import OPERATIONS, PRESETS, ops_in_order
-from backend.operations.rules import resolve, unavailable_code
+from backend.operations.rules import ParamError, resolve, unavailable_code
 
 router = APIRouter()
 
@@ -28,7 +29,7 @@ def list_operations() -> dict:
         d = asdict(spec)
         reason = unavailable_code(spec, caps.modules, caps.models)
         d["available"] = reason is None
-        d["unavailable_reason"] = reason
+        d["unavailable_code"] = reason
         out.append(d)
     return {"operations": out, "presets": PRESETS}
 
@@ -41,8 +42,10 @@ class ResolveRequest(BaseModel):
 def resolve_ops(body: ResolveRequest) -> dict:
     try:
         eff = resolve(body.ops, _availability())
+    except ParamError as exc:
+        return err(422, "bad_param", str(exc), params=exc.params)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return err(422, "bad_request", str(exc))
     return {
         "ops": [{"id": op_id, "params": params} for op_id, params in eff.ops],
         "disabled": eff.disabled,

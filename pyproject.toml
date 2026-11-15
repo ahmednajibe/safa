@@ -62,3 +62,6 @@ explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: long-running tests (30-min pipeline, memory bounds)",
+]

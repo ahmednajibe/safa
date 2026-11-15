@@ -57,8 +57,18 @@ def estimate_seconds(
 
 def bucket_for(high_s: float) -> str:
     """UI bucket (UI_DESIGN §6 dock subline): coarse on purpose."""
-    if high_s < 60:
+    code, minutes = bucket_code_for(high_s)
+    if code == "under_1m":
         return "Under a minute"
-    if high_s > 30 * 60:
+    if code == "over_30m":
         return "Over 30 min"
-    return f"About {max(2, int(high_s / 60 + 0.5))} min"
+    return f"About {minutes} min"
+
+
+def bucket_code_for(high_s: float) -> tuple[str, int | None]:
+    """SPEC §11 machine bucket: (bucket_code, minutes|None)."""
+    if high_s < 60:
+        return "under_1m", None
+    if high_s > 30 * 60:
+        return "over_30m", None
+    return "about_n_m", max(2, int(high_s / 60 + 0.5))

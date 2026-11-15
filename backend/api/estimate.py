@@ -7,9 +7,14 @@ from fastapi import APIRouter, Request
 
 from backend.api.errors import err
 from backend.core.capabilities import detect_capabilities
+from backend.core.messages import MESSAGES
 from backend.db import connect
 from backend.pipeline.device import gpu_usable
-from backend.pipeline.estimates import bucket_for, estimate_seconds
+from backend.pipeline.estimates import (
+    bucket_code_for,
+    bucket_for,
+    estimate_seconds,
+)
 
 router = APIRouter()
 
@@ -38,8 +43,7 @@ def estimate(
     finally:
         con.close()
     if row is None:
-        return err(404, "media_not_found",
-                   "This file was deleted or never existed.")
+        return err(404, "media_not_found", MESSAGES["media_not_found"])
     try:
         duration_s = float(json.loads(row["probe_json"]).get("duration_s") or 0)
     except (json.JSONDecodeError, ValueError, TypeError):
@@ -54,7 +58,13 @@ def estimate(
     if dev not in ("gpu", "cpu"):
         return err(422, "bad_request", "Invalid device.")
     if dev == "gpu" and not gpu_usable(caps):
-        return err(422, "gpu_unavailable",
-                   "The graphics card isn't available on this computer.")
+        return err(422, "gpu_unavailable", MESSAGES["gpu_unavailable"])
     low, high = estimate_seconds(duration_s, op_list, dev, caps)
-    return {"low_s": low, "high_s": high, "bucket": bucket_for(high)}
+    bucket_code, minutes = bucket_code_for(high)
+    return {
+        "low_s": low,
+        "high_s": high,
+        "bucket": bucket_for(high),
+        "bucket_code": bucket_code,
+        "minutes": minutes,
+    }
