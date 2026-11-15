@@ -1,7 +1,10 @@
-"""M5 Task 3: the pure keep-interval planner (SPEC §10).
+"""M5 Task 3 + M6b Task 3: the pure keep-interval planner (SPEC §10).
 
-``plan_keep`` is pure math: padded speech intervals + gap policy → the
-keep list ``render_keep`` consumes. No audio I/O here.
+``plan_keep`` is pure math: raw speech intervals + gap policy → the
+keep list ``render_keep`` consumes. The ``min_silence_s`` check compares
+the RAW gap (before padding — M6b fix); pads are then added only where
+the gap is actually cut, and in remove mode a detected breath inside a
+pad zone clamps the pad at the breath edge. No audio I/O here.
 """
 import pytest
 
@@ -58,6 +61,69 @@ def test_gap_just_below_min_silence_kept():
     keep = _plan([(1.0, 1.5), (1.9, 2.5)], 5.0, pad_s=0.0,
                  min_silence_s=0.5)
     assert keep == [(1.0, 2.5)]
+
+
+def test_raw_gap_compared_before_padding():
+    """M6b Review Focus 5: raw VAD gap 0.4 s with min_silence_s 0.3 IS
+    cut — the old code padded first (0.4 − 2·0.1 = 0.2 < 0.3) and kept it.
+    """
+    keep = _plan([(1.0, 2.0), (2.4, 3.0)], 5.0)
+    assert keep == [(0.9, 2.1), (2.3, 3.1)]
+
+
+def test_raw_gap_boundary_uses_unpadded_gap():
+    """0.29 s raw gap < 0.3 → kept whole even though padding would
+    shrink it to 0.09 s on the blocks."""
+    keep = _plan([(1.0, 2.0), (2.29, 3.0)], 5.0)
+    assert keep == [(0.9, 3.1)]
+
+
+# ---- breath-aware pad clamp (M6b) --------------------------------------------------
+
+
+def test_breath_in_trailing_pad_clamps_pad_at_breath_start():
+    """Exhale right after a phrase end inside the pad zone: the kept pad
+    must stop at the breath start so the splice keeps no gasp."""
+    speech = [(1.0, 2.0), (2.5, 3.5)]
+    # raw gap 0.5 ≥ 0.3 → cut; pad zone after 2.0 is (2.0, 2.1)
+    keep = _plan(speech, 5.0, breaths=[(2.04, 2.30)])
+    assert keep == [(0.9, 2.04), (2.4, 3.6)]
+
+
+def test_breath_in_leading_pad_clamps_pad_at_breath_end():
+    """Inhale ending inside the next phrase's leading pad zone: the pad
+    starts at the breath end instead of keeping the gasp tail."""
+    speech = [(1.0, 2.0), (2.5, 3.5)]
+    keep = _plan(speech, 5.0, breaths=[(2.30, 2.46)])
+    assert keep == [(0.9, 2.1), (2.46, 3.6)]
+
+
+def test_breath_covering_whole_leading_pad_drops_pad():
+    """Breath spanning the entire pad zone → no pad at all."""
+    speech = [(1.0, 2.0), (2.5, 3.5)]
+    keep = _plan(speech, 5.0, breaths=[(2.30, 2.52)])
+    # be 2.52 > a 2.5 → straddles speech start: not clamped (speech wins)
+    assert keep == [(0.9, 2.1), (2.4, 3.6)]
+    keep = _plan(speech, 5.0, breaths=[(2.38, 2.50)])
+    assert keep == [(0.9, 2.1), (2.5, 3.6)]
+
+
+def test_breath_outside_pad_zone_ignored():
+    speech = [(1.0, 2.0), (3.0, 4.0)]
+    keep = _plan(speech, 5.0, breaths=[(2.3, 2.5)])
+    assert keep == [(0.9, 2.1), (2.9, 4.1)]
+
+
+def test_breaths_ignored_in_shorten_mode():
+    """Shorten keeps a piece of every pause — breath clamping is a
+    remove-mode rule only."""
+    speech = [(1.0, 2.0), (2.5, 3.5)]
+    keep = _plan(speech, 5.0, action="shorten", keep_pause_s=0.2,
+                 breaths=[(2.04, 2.30)])
+    # padded blocks (0.9,2.1),(2.4,3.6); halves 0.1 → (0.9,2.2),(2.3,3.6);
+    # edges: leading keeps last 0.2 → (0.7,·), trailing keeps 0.2 → (·,3.8)
+    flat = [v for iv in keep for v in iv]
+    assert flat == pytest.approx([0.7, 2.2, 2.3, 3.8])
 
 
 # ---- padding --------------------------------------------------------------------

@@ -33,20 +33,21 @@ def _all_implemented():
 # ---- registry shape ---------------------------------------------------------
 
 
-def test_fourteen_ops_in_order():
+def test_fifteen_ops_in_order():
     from backend.operations.registry import OPERATIONS, ops_in_order
 
-    assert len(OPERATIONS) == 14
+    assert len(OPERATIONS) == 15
     ids = [op.id for op in ops_in_order()]
     assert ids == [
         "trim", "channel", "highpass", "dehum", "separate", "declick",
-        "denoise", "dereverb", "enhance", "enhance_ai", "silence",
-        "speed", "loudness", "subtitles",
+        "denoise", "dereverb", "breaths", "enhance", "enhance_ai",
+        "silence", "speed", "loudness", "subtitles",
     ]
     orders = [op.order for op in ops_in_order()]
     assert orders == sorted(orders)
     assert OPERATIONS["declick"].order == 38  # between dehum and denoise (M4c)
     assert OPERATIONS["dereverb"].order == 42  # after denoise, before enhance (M6)
+    assert OPERATIONS["breaths"].order == 46  # after dereverb, before enhance (M6b)
     assert OPERATIONS["highpass"].params[0].default == 90
 
 
@@ -244,7 +245,7 @@ def test_resolve_disables_unimplemented_ops():
     # the runnable part keeps the new effective order
     assert [op_id for op_id, _ in eff.ops] == [
         "highpass", "dehum", "declick", "denoise", "dereverb",
-        "enhance", "silence", "loudness"
+        "breaths", "enhance", "silence", "loudness"
     ]
     # explicit opt-in to an unimplemented op gets the same graceful path
     eff2 = resolve({"separate": {}, "loudness": {}}, _all_available(),
@@ -264,7 +265,7 @@ def test_operations_endpoint(tmp_path):
     assert r.status_code == 200
     body = r.json()
     ops = body["operations"]
-    assert len(ops) == 14
+    assert len(ops) == 15
     assert [o["id"] for o in ops][:3] == ["trim", "channel", "highpass"]
     for op in ops:
         assert "available" in op and "unavailable_code" in op

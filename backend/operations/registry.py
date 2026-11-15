@@ -129,6 +129,23 @@ OPERATIONS: dict[str, OpSpec] = {
                       ), advanced=True),
         ],
     ),
+    "breaths": OpSpec(
+        id="breaths", order=46,
+        name="Reduce breaths",
+        description="Makes breathing between sentences quieter without"
+                    " cutting it out.",
+        engine="numpy/scipy + silero-vad", device="cpu",
+        requires_modules=["silero_vad"], requires_models=["silero_vad"],
+        params=[
+            ParamSpec("reduce_db", "How much quieter", "number", 12,
+                      min=6, max=20, unit="dB"),
+            ParamSpec("sensitivity", "Sensitivity", "select", "normal",
+                      options=_opts(
+                          ("gentle", "Gentle"), ("normal", "Normal"),
+                          ("strong", "Strong"),
+                      )),
+        ],
+    ),
     "denoise": OpSpec(
         id="denoise", order=40,
         name="Reduce background noise",
@@ -266,6 +283,7 @@ PRESETS: dict[str, dict] = {
             "declick": {"mode": "mouth"},
             "denoise": {"engine": "ai", "strength_db": 24},
             "dereverb": {"strength": "gentle"},
+            "breaths": {},
             "enhance": {},
             "silence": {"action": "remove"},
             "loudness": {"target": "podcast"},
@@ -296,6 +314,7 @@ PRESETS: dict[str, dict] = {
             "declick": {"mode": "mouth"},
             "denoise": {"engine": "ai", "strength_db": 24},
             "dereverb": {"strength": "gentle"},
+            "breaths": {},
             "enhance": {},
             "silence": {"action": "remove"},
             "loudness": {},
@@ -315,6 +334,7 @@ PRESETS: dict[str, dict] = {
             "declick": {"mode": "mouth"},
             "denoise": {"engine": "ai", "strength_db": 24},
             "dereverb": {"strength": "gentle"},
+            "breaths": {},
             "enhance": {},
             "silence": {"action": "remove"},
             "loudness": {"target": "youtube"},

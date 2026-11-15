@@ -17,6 +17,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import soundfile as sf
+
 from backend.core.messages import msg
 from backend.media.cutter import input_intervals, render_keep
 from backend.media.silence_detect import (
@@ -26,6 +28,67 @@ from backend.media.silence_detect import (
 from backend.media.silence_plan import plan_keep
 from backend.media.timeline import Timeline
 from backend.operations.base import OpContext, OpResult, stage_wav
+
+
+def _breaths_near_splices(
+    in_wav: Path,
+    speech: list[tuple[float, float]],
+    duration: float,
+    min_silence_s: float,
+    margin_s: float = 1.0,
+) -> list[tuple[float, float]]:
+    """Breath spans detected in bounded windows around splice points.
+
+    The pad clamp only applies to breaths inside pad zones — the pad_s
+    slivers at the edges of cut gaps and at the file edges. Scanning
+    ``[gap − margin, gap + margin]`` per cuttable gap (merged when they
+    overlap) finds every breath that can reach a pad zone while reading
+    only a few seconds of audio at a time.
+    """
+    from backend.media.breaths import detect_breaths
+
+    edges: list[tuple[float, float]] = []
+    if speech[0][0] > 0:
+        edges.append((speech[0][0], speech[0][0]))  # leading pad zone
+    for (_, b0), (a1, _) in zip(speech, speech[1:]):
+        if a1 - b0 >= min_silence_s:
+            edges.append((b0, a1))
+    if duration - speech[-1][1] > 0:
+        edges.append((speech[-1][1], speech[-1][1]))  # trailing pad zone
+    if not edges:
+        return []
+
+    # Merge overlapping scan windows; each covers its gap plus enough
+    # margin to catch a breath reaching into either pad zone.
+    zones: list[list[float]] = []
+    for a, b in edges:
+        za = max(0.0, a - margin_s)
+        zb = min(duration, b + margin_s)
+        if zones and za <= zones[-1][1]:
+            zones[-1][1] = max(zones[-1][1], zb)
+        else:
+            zones.append([za, zb])
+
+    spans: list[list[float]] = []
+    with sf.SoundFile(str(in_wav), "r") as fin:
+        sr = fin.samplerate
+        for za, zb in zones:
+            fin.seek(int(za * sr))
+            blk = fin.read(
+                int((zb - za) * sr), dtype="float32", always_2d=True
+            )
+            if not len(blk):
+                continue
+            for s, e in detect_breaths(blk.mean(axis=1), sr):
+                spans.append([za + s, za + e])
+    spans.sort()
+    merged: list[list[float]] = []
+    for s, e in spans:
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return [(s, e) for s, e in merged]
 
 
 def _result(out: Path, code: str, params: dict, timeline=None) -> OpResult:
@@ -69,8 +132,20 @@ def run(in_wav: Path, params: dict, ctx: OpContext) -> OpResult:
         ctx.report(1.0, None)
         return _result(out, "no_speech_found", {})
 
+    breaths = None
+    if action == "remove" and mode == "vad" and pad_s > 0:
+        # Breath-aware pads: a breath inside a pad zone would survive the
+        # cut as a half-gasp at the splice — clamp the pad at its edge.
+        # Only pad zones can leak gasps, so detection scans bounded
+        # windows around cuttable gaps + file edges (~±1 s each), never
+        # the whole file — RAM stays flat on long inputs.
+        breaths = _breaths_near_splices(
+            in_wav, speech, dur, min_silence_s
+        )
+
     keep = plan_keep(
-        speech, dur, action, min_silence_s, pad_s, keep_pause_s
+        speech, dur, action, min_silence_s, pad_s, keep_pause_s,
+        breaths=breaths,
     )
     kept_total = sum(b - a for a, b in keep)
     if dur - kept_total <= 1e-3:

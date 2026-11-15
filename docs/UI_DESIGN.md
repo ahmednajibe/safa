@@ -134,6 +134,7 @@ Mark (simple amber-free white monogram: a waveform-in-square glyph, 20px) + "Sou
 | dehum | Remove electrical hum | Removes steady 50/60 Hz buzz from power lines and equipment. |
 | separate | Separate voice and music | Keep the voice, keep the music, or export both. |
 | dereverb | Reduce room echo | Dries up the hollow sound of big or bare rooms. |
+| breaths | Reduce breaths | Makes breathing between sentences quieter without cutting it out. |
 | denoise | Reduce background noise | Lowers hiss, fans, traffic and room noise while keeping speech natural. |
 | declick | Remove mouth clicks | Removes saliva clicks, lip smacks and crackle without touching consonants. |
 | enhance | Polish voice | Balances tone, softens harsh "s" sounds and evens out loud and quiet words. |
@@ -219,6 +220,7 @@ Presets: Podcast cleanup = تنقية البودكاست · Remove background mu
 | dehum | إزالة طنين الكهرباء | يزيل الطنين الثابت (50/60 هرتز) الصادر من الكهرباء والأجهزة. |
 | separate | فصل الكلام عن الموسيقى | يحتفظ بصوت المتحدث فقط، أو بالموسيقى فقط، أو يحفظ الاثنين منفصلين. |
 | dereverb | تقليل صدى الغرفة | يخفف صدى الصوت في الغرف الكبيرة أو الفارغة. |
+| breaths | تخفيف صوت التنفس | يخفض صوت التنفس بين الجمل دون حذفه. |
 | denoise | تقليل ضوضاء الخلفية | يخفض الهسهسة وصوت المراوح والشارع وضوضاء الغرفة مع إبقاء الكلام طبيعيًا. |
 | declick | إزالة طقطقة الفم | يقلل أصوات اللعاب وطقطقة الشفاه مع الحفاظ على وضوح الكلام. |
 | enhance | تحسين الصوت | يوازن نبرة الصوت، ويخفف حدة حرف السين، ويقلل الدوي، ويساوي بين الكلمات العالية والمنخفضة. |

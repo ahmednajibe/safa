@@ -27,6 +27,7 @@ MESSAGES: dict[str, str] = {
     "room_resonances_cut": (
         "Reduced room echo: cut resonances at {freqs} Hz"
     ),
+    "breaths_reduced": "Made {count} breaths quieter by about {db} dB",
     # device fallbacks / warnings (SPEC §9)
     "gpu_fallback": (
         "Graphics memory ran out. Running this step on the processor"

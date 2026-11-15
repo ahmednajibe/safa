@@ -183,3 +183,66 @@ def window_band_rms_db(
         else:
             out.append(float(_db(np.sqrt((seg ** 2).mean() + 1e-20))))
     return out
+
+
+# ---- M6b: synthetic breath (Argon §4 recipe) ---------------------------------
+
+
+def _peaking_sos(f0: float, q: float, gain_db: float, sr: int) -> np.ndarray:
+    """RBJ peaking-EQ biquad as an sos row (+gain at f0)."""
+    A = 10.0 ** (gain_db / 40.0)
+    w0 = 2.0 * np.pi * f0 / sr
+    alpha = np.sin(w0) / (2.0 * q)
+    cw = np.cos(w0)
+    b = np.array([1 + alpha * A, -2 * cw, 1 - alpha * A])
+    a = np.array([1 + alpha / A, -2 * cw, 1 - alpha / A])
+    return np.concatenate([b / a[0], a / a[0]])[None, :]
+
+
+def synth_breath(
+    sr: int,
+    dur_s: float = 0.35,
+    level_dbfs: float = -24.0,
+    seed: int = 0,
+    peak_time: float = 0.5,
+) -> np.ndarray:
+    """A realistic breath per Argon §4: white noise → 2nd-order band-pass
+    400–4200 Hz + formant peaks (~750 / ~1750 Hz, Q 2, +6 dB) under a
+    Beta(2,2)-shaped envelope at ``level_dbfs`` RMS.
+    ``peak_time`` (0..1) shifts the envelope peak (0.5 = centred swell)."""
+    n = max(1, int(dur_s * sr))
+    rng = np.random.default_rng(seed)
+    noise = rng.standard_normal(n)
+    sos = signal.butter(
+        2, [400.0, 4200.0], btype="band", fs=sr, output="sos"
+    )
+    b = signal.sosfiltfilt(sos, noise)
+    for f0 in (750.0, 1750.0):
+        b = signal.sosfilt(_peaking_sos(f0, 2.0, 6.0, sr), b)
+    t = np.linspace(0.0, 1.0, n, endpoint=False)
+    # Beta(2,2) shape ∝ t(1-t), peak shifted to ``peak_time``.
+    env = np.clip(t, 1e-6, 1 - 1e-6)
+    env = (env / peak_time) * ((1.0 - env) / (1.0 - peak_time))
+    env = np.clip(env / env.max(), 0.0, 1.0)
+    b = b * env
+    rms = float(np.sqrt((b * b).mean() + 1e-20))
+    return (b * (10.0 ** (level_dbfs / 20.0) / rms)).astype(np.float32)
+
+
+def synth_vowel(
+    sr: int, dur_s: float = 0.3, f0: float = 150.0,
+    level_dbfs: float = -18.0, n_harm: int = 24,
+) -> np.ndarray:
+    """A steady voiced vowel-ish tone: harmonics of ``f0`` with a −6 dB/oct
+    rolloff — high pitch periodicity, low spectral flatness."""
+    n = max(1, int(dur_s * sr))
+    t = np.arange(n) / sr
+    x = np.zeros(n, dtype=np.float64)
+    for k in range(1, n_harm + 1):
+        x += np.sin(2 * np.pi * f0 * k * t + 0.7 * k) / k
+    # smooth edges so the tone is not a click
+    e = int(0.01 * sr)
+    x[:e] *= np.linspace(0, 1, e)
+    x[-e:] *= np.linspace(1, 0, e)
+    rms = float(np.sqrt((x * x).mean() + 1e-20))
+    return (x * (10.0 ** (level_dbfs / 20.0) / rms)).astype(np.float32)

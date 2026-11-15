@@ -1,13 +1,21 @@
 """Generate review files in ``data/review/`` (explicit, not pytest).
 
-M6 (default): for every real recording, run the **Podcast preset**
+M6 + M6b (default): for every real recording, run the **Podcast preset**
 through the real pipeline and write
-  - ``m6_<stem>_podcast.wav``
-  - ``m6_<stem>_podcast_keep_silence.wav``  (same preset minus silence)
+  - ``m6_<stem>_podcast.wav``               (podcast chain minus breaths —
+                                             the M6-era output)
+  - ``m6_<stem>_podcast_keep_silence.wav``  (same preset minus silence
+                                             and breaths)
+  - ``m6b_<stem>_podcast.wav``              (full podcast chain incl.
+                                             the M6b breaths op)
+  - ``m6b_<stem>_breaths_only.wav``         (input − breaths-op output:
+                                             exactly what was turned down)
 
-and print the plan's Task-5 report per recording: input/output duration,
-non-speech level drop, SRMR proxy, LTAS ripple, resonance cuts found,
-LUFS, true peak, device used and seconds per stage.
+and print the M6 report (durations, non-speech floor drop, SRMR, LTAS
+ripple, resonance cuts, LUFS, true peak, stage timings) plus the M6b
+report per recording: detected breath timestamps, measured dB drop over
+the detected spans, and the faster-whisper transcript diff input vs
+breaths-op output.
 
 ``--m5`` also regenerates the M5 files:
   - ``m5_<recording stem>_cut.wav`` per real recording (silence defaults)
@@ -17,12 +25,16 @@ Run:  uv run python scripts/make_review_files.py [--m5]
 """
 from __future__ import annotations
 
+import difflib
 import json
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -113,9 +125,9 @@ def _run_ops(src: Path, tmp: Path, ops, device: str, tag: str) -> dict:
 
 
 def _m6_one(rec: Path, tmp: Path, device: str) -> dict:
-    """Podcast preset on one recording → both review files + metrics."""
-    ops = _preset_ops("podcast")
-    ops_keep = _preset_ops("podcast", skip={"silence"})
+    """Podcast preset (M6-era: minus ``breaths``) on one recording."""
+    ops = _preset_ops("podcast", skip={"breaths"})
+    ops_keep = _preset_ops("podcast", skip={"silence", "breaths"})
 
     dst = REVIEW / f"m6_{rec.stem}_podcast.wav"
     dst_keep = REVIEW / f"m6_{rec.stem}_podcast_keep_silence.wav"
@@ -223,6 +235,150 @@ def _m6_report(rows: list[dict]) -> None:
             )
 
 
+# ---- M6b: breaths review files ----------------------------------------------------
+
+
+def _whisper_model():
+    """faster-whisper small on CPU, or None when unavailable."""
+    try:
+        from faster_whisper import WhisperModel
+
+        from backend.core.models_manifest import model_dir
+
+        return WhisperModel(
+            "small", device="cpu", compute_type="int8",
+            download_root=str(model_dir("whisper_small")),
+        )
+    except Exception as exc:  # module or weights missing — report, don't fail
+        print(f"  NOTE: whisper unavailable ({exc}) — transcript diff skipped")
+        return None
+
+
+def _transcript(model, wav: Path) -> str | None:
+    """Deterministic decode: temperature=0.0 disables the sampling
+    fallback (identical bytes otherwise score 5–87 words across runs)
+    and condition_on_previous_text=False stops error cascades."""
+    if model is None:
+        return None
+    segs, _ = model.transcribe(
+        str(wav), beam_size=5, temperature=0.0,
+        condition_on_previous_text=False,
+    )
+    return " ".join(s.text.strip() for s in segs).strip()
+
+
+def _word_diff(a: str | None, b: str | None):
+    """Case/punctuation-insensitive word opcodes between transcripts."""
+    if a is None or b is None:
+        return None
+    wa = re.findall(r"\w+", a.lower())
+    wb = re.findall(r"\w+", b.lower())
+    sm = difflib.SequenceMatcher(None, wa, wb, autojunk=False)
+    return [
+        (op, " ".join(wa[i1:i2]), " ".join(wb[j1:j2]))
+        for op, i1, i2, j1, j2 in sm.get_opcodes()
+        if op != "equal"
+    ]
+
+
+def _m6b_one(rec: Path, tmp: Path, device: str, model) -> dict:
+    """Podcast chain + breaths residual + breath report for one file."""
+    import soundfile as sf
+
+    from backend.media.breaths import FRAME_S, detect_breaths
+
+    stem = rec.stem.replace(" ", "_")
+    p = probe(rec)
+    in_wav = tmp / f"{stem}_m6b_in.wav"
+    decode_to_wav(rec, in_wav, p.audio[0].index)
+
+    # 1) breaths op alone → residual review file
+    run_b = _run_ops(rec, tmp, [("breaths", {})], device, "breaths")
+    xi, sr_i = sf.read(str(in_wav), dtype="float32", always_2d=True)
+    xo, sr_o = sf.read(str(run_b["out"]), dtype="float32", always_2d=True)
+    n = min(len(xi), len(xo))
+    dst_res = REVIEW / f"m6b_{rec.stem}_breaths_only.wav"
+    sf.write(
+        str(dst_res), (xi[:n] - xo[:n]), sr_i, subtype="FLOAT"
+    )
+
+    # 2) full podcast chain (breaths included since M6b)
+    run_p = _run_ops(rec, tmp, _preset_ops("podcast"), device, "m6b")
+    dst = REVIEW / f"m6b_{rec.stem}_podcast.wav"
+    shutil.copy2(run_p["out"], dst)
+
+    # 3) report numbers: detections, per-span dB drop, transcript diff
+    mono_in = xi.mean(axis=1)
+    mono_out = xo.mean(axis=1)
+    spans = detect_breaths(mono_in, sr_i)
+    n_fr = int(FRAME_S * sr_i)
+    k = n // n_fr
+    e_in = 20 * np.log10(
+        np.sqrt((mono_in[: k * n_fr].reshape(k, n_fr) ** 2).mean(1))
+        + 1e-12
+    )
+    e_out = 20 * np.log10(
+        np.sqrt((mono_out[: k * n_fr].reshape(k, n_fr) ** 2).mean(1))
+        + 1e-12
+    )
+    span_rows = []
+    for a, b in spans:
+        i0, i1 = int(a / FRAME_S), min(int(b / FRAME_S) + 1, k)
+        drop = float(np.median(e_in[i0:i1]) - np.median(e_out[i0:i1]))
+        span_rows.append((a, b, drop))
+    t_in = _transcript(model, in_wav)
+    t_out = _transcript(model, run_b["out"])
+    breaths_msg = next(
+        (s for s in run_b["stages"].values() if s.message_code
+         == "breaths_reduced"),
+        None,
+    )
+    return {
+        "stem": rec.stem,
+        "path": dst,
+        "path_res": dst_res,
+        "spans": span_rows,
+        "op_count": (
+            breaths_msg.message_params.get("count") if breaths_msg else 0
+        ),
+        "op_db": (
+            breaths_msg.message_params.get("db") if breaths_msg else None
+        ),
+        "diff": _word_diff(t_in, t_out),
+        "t_in": t_in,
+        "t_out": t_out,
+        "device": device,
+    }
+
+
+def _m6b_report(rows: list[dict]) -> None:
+    for r in rows:
+        print(f"\n=== {r['stem']} (M6b) ===")
+        print(f"  files:   {r['path'].name}")
+        print(f"           {r['path_res'].name}")
+        if not r["spans"]:
+            print("  breaths: none detected (detector limit — see report)")
+        else:
+            print(f"  breaths detected ({len(r['spans'])}):")
+            for a, b, drop in r["spans"]:
+                print(
+                    f"    {a:7.2f}–{b:7.2f} s   measured drop {drop:+.1f} dB"
+                )
+        print(
+            f"  op message: count={r['op_count']} db={r['op_db']}"
+        )
+        if r["diff"] is None:
+            print("  transcript: skipped (whisper unavailable)")
+        elif not r["diff"]:
+            print("  transcript: unchanged")
+        else:
+            print(f"  transcript diff ({len(r['diff'])} hunks):")
+            for op, wa, wb in r["diff"]:
+                print(f"    {op}: {wa!r} -> {wb!r}")
+            print(f"    in : {r['t_in']}")
+            print(f"    out: {r['t_out']}")
+
+
 # ---- M5: silence review files (unchanged, behind --m5) --------------------------
 
 
@@ -309,13 +465,18 @@ def main() -> int:
     REVIEW.mkdir(parents=True, exist_ok=True)
     device = _job_device()
     print(f"job device: {device}")
-    rows = []
+    rows, rows_b = [], []
     with tempfile.TemporaryDirectory(prefix="m6_review_") as td:
         tmp = Path(td)
+        model = _whisper_model()
         for rec in recordings:
             print(f"processing {rec.name} (podcast + keep-silence)…")
             rows.append(_m6_one(rec, tmp, device))
+            print(f"processing {rec.name} (m6b podcast + breaths)…")
+            rows_b.append(_m6b_one(rec, tmp, device, model))
+        del model
     _m6_report(rows)
+    _m6b_report(rows_b)
     if "--m5" in sys.argv[1:]:
         _m5(recordings)
     return 0
