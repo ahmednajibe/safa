@@ -16,7 +16,7 @@
 - VAD runs on a 16 kHz mono copy; timestamps applied to the 48 kHz signal. Process long files in windows (≤ 10 min with 2 s overlap, merge intervals) so RAM stays bounded.
 - Silero runs on CPU always (it is tiny); the op reports `actual_device="cpu"`.
 - No speech found → output = input unchanged, `message="No speech found, so nothing was cut. Try Volume threshold mode."` (never an empty file).
-- Report a summary message: `"Removed 12.4 s of silence in 37 places"` / `"Shortened 9 pauses, saved 6.1 s"`.
+- Report a summary via `msg("silence_removed", seconds=12.4, count=37)` / `msg("pauses_shortened", ...)` / `msg("no_speech_found")`: `"Removed 12.4 s of silence in 37 places"` / `"Shortened 9 pauses, saved 6.1 s"`.
 
 ## Review Focus
 1. A 0.2 s gap between two words is kept when `min_silence_s=0.3` (no word-crashing) (test on synthetic SAPI speech: concatenate two phrases with a 0.2 s gap and a 1.0 s gap; only the 1.0 s one is cut).
@@ -26,6 +26,11 @@
 5. 30-minute generated file (speech fixture repeated with gaps) completes with peak RSS of the worker < 1.5 GB (measure with psutil in the test; mark `@pytest.mark.slow`, still run it once and report the number).
 
 ---
+
+### Task 0: Localizable backend messages (SPEC §11 "Message codes") — do first
+**Files:** Create `backend/core/messages.py`; modify `backend/operations/base.py` (`OpResult.message_code/message_params`, `warning_code/warning_params`), `backend/pipeline/types.py` (`Progress.message_code/params`), `backend/jobs/store.py` + `backend/db.py` (persist `message_code`, `message_params_json`, `error_code`, `error_params_json`, `warnings_json` — idempotent migration), `backend/api/errors.py` (`err(status, code, message, params=None)` → `{"code","message","params"}`), `backend/api/estimate.py` (`bucket_code` + `minutes`), `backend/api/operations.py` (`unavailable_code`, conflict `{conflict_code, blocker_op_id}`), every existing op that sets a message (loudness `very_quiet_raised`, fallbacks `gpu_fallback{op_id}`), worker/supervisor (`job_interrupted`, `job_cancelled`, `job_failed{op_id}`), media API errors.
+- `messages.py`: `MESSAGES: dict[str, str]` English templates keyed by code (`"silence_removed": "Removed {seconds} s of silence in {count} places"`, …); `msg(code, **params) -> tuple[str, str, dict]` returning (english_text, code, params); unknown code raises in tests.
+- Tests: every code used in the codebase exists in `MESSAGES` (grep-style test over `backend/`), SSE state carries `message_code`, API errors carry `params`, estimate returns `bucket_code`, migration idempotent.
 
 ### Task 1: Registry params + presets
 **Files:** Modify `backend/operations/registry.py`, `tests/test_operations.py`, `frontend/src` only if op names are hard-coded there (they should come from the API).
