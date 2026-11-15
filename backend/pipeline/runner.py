@@ -190,6 +190,7 @@ def run_pipeline(
                 out_dir=out_dir,
                 audio_format=output.audio_format,
                 display_stem=stem,
+                preview=preview,
             )
             result = fn(prev, params or {}, ctx)
             out_wav = Path(result.path)

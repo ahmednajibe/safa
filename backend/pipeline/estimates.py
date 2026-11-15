@@ -15,8 +15,13 @@ _RTF: dict[tuple[str, str], tuple[float, float]] = {
     ("denoise:ai", "gpu"): (0.08, 0.2),
     ("denoise:ai", "cpu"): (0.2, 0.45),
     ("denoise:classic", "cpu"): (0.02, 0.08),
-    ("subtitles", "gpu"): (0.3, 0.7),
-    ("subtitles", "cpu"): (1.5, 3.5),
+    # subtitles: measured RTFs on this machine (docs/FEASIBILITY.md):
+    # small GPU ~0.16–0.5× / CPU ~2.3×; turbo GPU ~0.2–0.35× on the
+    # 19–33 s real recordings (6.8–10.1 s incl. load), CPU unmeasured.
+    ("subtitles:fast", "gpu"): (0.15, 0.7),
+    ("subtitles:fast", "cpu"): (1.5, 3.5),
+    ("subtitles:accurate", "gpu"): (0.25, 0.9),
+    ("subtitles:accurate", "cpu"): (3.0, 7.0),
     ("silence", "cpu"): (0.1, 0.3),
     ("enhance", "cpu"): (0.04, 0.12),
     ("loudness", "cpu"): (0.04, 0.12),  # two passes
@@ -33,6 +38,8 @@ def _rtf_key(op_id: str, params: dict) -> str:
         return f"separate:{(params or {}).get('model', 'htdemucs')}"
     if op_id == "denoise":
         return f"denoise:{(params or {}).get('engine', 'ai')}"
+    if op_id == "subtitles":
+        return f"subtitles:{(params or {}).get('model', 'fast')}"
     return op_id
 
 

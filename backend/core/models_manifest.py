@@ -64,6 +64,14 @@ MODELS: dict[str, ModelSpec] = {
         cache_subdir="whisper",
         approx_mb=460,
     ),
+    "whisper_turbo": ModelSpec(
+        name="faster-whisper large-v3-turbo",
+        engine="faster-whisper (ctranslate2)",
+        source="huggingface:mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+        filename=None,
+        cache_subdir="whisper",
+        approx_mb=1600,
+    ),
 }
 
 

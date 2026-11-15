@@ -85,8 +85,17 @@ def _model_present(name: str) -> bool:
         if name == "deepfilternet3":
             p = d / "DeepFilterNet3"
             return p.is_dir() and any(p.iterdir())
-        if name == "whisper_small":
-            return any(d.glob("models--*/snapshots/*/model.bin"))
+        if name in ("whisper_small", "whisper_turbo"):
+            # HF hub layout under models/whisper/ — check the *specific*
+            # repo folder so one model's cache can't fake the other (M8).
+            folder = {
+                "whisper_small": "models--Systran--faster-whisper-small",
+                "whisper_turbo": (
+                    "models--mobiuslabsgmbh--"
+                    "faster-whisper-large-v3-turbo"
+                ),
+            }[name]
+            return any((d / folder).glob("snapshots/*/model.bin"))
         if name == "silero_vad":
             return _module_present("silero_vad")  # weights bundled in the wheel
     except Exception:

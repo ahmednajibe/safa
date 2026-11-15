@@ -36,6 +36,7 @@ REQUIRED_CODES = {
     "timeline_not_found", "in_use", "processing", "client_disconnected",
     "karaoke_speech_op", "preset_partial", "planned", "not_implemented",
     "module_missing", "model_missing", "unavailable",
+    "subtitles_written", "language_detected", "trim_outside_preview",
 }
 
 _CODE_PATTERNS = [

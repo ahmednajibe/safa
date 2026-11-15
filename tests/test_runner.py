@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 import soundfile as sf
 from fastapi.testclient import TestClient
@@ -164,6 +165,88 @@ def test_preview_range_audio_only(tmp_path):
     assert abs(info.frames / info.samplerate - 3.0) < 0.03
 
 
+# ---- M8 Task 0: trim inside a preview window ------------------------------------
+
+
+def _long_wav(tmp_path: Path, seconds: float = 60.0) -> Path:
+    """A plain 48 kHz WAV long enough for source-time trim bounds."""
+    src = tmp_path / "long.wav"
+    t = np.arange(int(48000 * seconds)) / 48000
+    sf.write(
+        str(src),
+        (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32),
+        48000, subtype="FLOAT",
+    )
+    return src
+
+
+def _dur(path) -> float:
+    info = sf.info(str(path))
+    return info.frames / info.samplerate
+
+
+def test_preview_trim_intersecting_window(tmp_path):
+    """Preview [20, 40] + trim(25, 50) keeps [25, 40) → exactly 15 s."""
+    src = _long_wav(tmp_path)
+    outs, _ = _run(
+        src, tmp_path,
+        ops=[("trim", {"start_s": 25.0, "end_s": 50.0})],
+        preview=(20.0, 40.0),
+    )
+    assert _dur(outs[0].path) == pytest.approx(15.0, abs=0.02)
+
+
+def test_preview_trim_partial_overlap(tmp_path):
+    """Preview [20, 40] + trim(0, 25) keeps [20, 25) → 5 s (clipped at the
+    preview edge, in preview-time coordinates)."""
+    src = _long_wav(tmp_path)
+    outs, _ = _run(
+        src, tmp_path,
+        ops=[("trim", {"start_s": 0.0, "end_s": 25.0})],
+        preview=(20.0, 40.0),
+    )
+    assert _dur(outs[0].path) == pytest.approx(5.0, abs=0.02)
+
+
+def test_preview_trim_outside_is_noop(tmp_path):
+    """trim(50, 60) doesn't touch preview [20, 40] → whole preview passes
+    through with a coded message instead of a ValueError."""
+    src = _long_wav(tmp_path)
+    outs, events = _run(
+        src, tmp_path,
+        ops=[("trim", {"start_s": 50.0, "end_s": 60.0})],
+        preview=(20.0, 40.0),
+    )
+    assert _dur(outs[0].path) == pytest.approx(20.0, abs=0.02)
+    assert any(e.message_code == "trim_outside_preview" for e in events)
+
+
+def test_trim_full_file_still_validates(tmp_path):
+    """Outside preview jobs the old contract stands: start ≥ file end is a
+    human-readable error, not a silent no-op — while the same trim inside a
+    preview window just no-ops."""
+    src = _long_wav(tmp_path, seconds=10.0)
+    p = probe(src)
+    with pytest.raises(ValueError, match="Trim start must be before"):
+        run_pipeline(
+            media_path=src,
+            probe=p,
+            audio_stream_index=p.audio[0].index,
+            ops=[("trim", {"start_s": 15.0})],
+            output=OutputSpec(),
+            job_root=tmp_path / "job",
+            on_progress=lambda e: None,
+            should_cancel=lambda: False,
+        )
+    # …and the same out-of-range trim inside a preview does not fail
+    outs, _ = _run(
+        src, tmp_path,
+        ops=[("trim", {"start_s": 15.0})],
+        preview=(2.0, 6.0),
+    )
+    assert _dur(outs[0].path) == pytest.approx(4.0, abs=0.02)
+
+
 def test_progress_called_in_order(tmp_path):
     _, events = _run(CLIP, tmp_path)
     stages = [e.stage for e in events]
@@ -195,8 +278,8 @@ def test_cancel_between_stages(tmp_path):
 
 
 def test_unknown_op_raises(tmp_path):
-    with pytest.raises(NotImplementedError, match="subtitles"):
-        _run(CLIP, tmp_path, ops=[("subtitles", {})])
+    with pytest.raises(NotImplementedError, match="bogus_op"):
+        _run(CLIP, tmp_path, ops=[("bogus_op", {})])
 
 
 def test_arabic_output_name(tmp_path):

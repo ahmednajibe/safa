@@ -7,7 +7,8 @@ fetches exactly the files the engine needs (weights, ``htdemucs.yaml``,
 nothing hardcoded to rot.
 
 Usage:  uv run python scripts/prefetch_models.py [model ...]
-        (default: the separation models; ``--all`` for every known model)
+        (default: the separation + whisper models; ``--all`` for every
+        known model)
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ sys.path.insert(0, str(ROOT))
 from backend.core.models_manifest import MODELS, model_dir  # noqa: E402
 
 SEPARATOR_MODELS = ("htdemucs", "kim_vocal_2")
+WHISPER_MODELS = ("whisper_small", "whisper_turbo")
 
 
 def _dir_snapshot(d: Path) -> set[str]:
@@ -50,9 +52,31 @@ def prefetch_separator(model: str) -> list[str]:
     return got
 
 
+def prefetch_whisper(model: str) -> None:
+    """Build the whisper model once on CPU — faster-whisper's
+    ``snapshot_download`` fills the HF layout under ``models/whisper/``
+    with exactly the files runtime needs."""
+    t0 = time.monotonic()
+    from faster_whisper import WhisperModel  # noqa: E402 — worker script
+
+    from backend.media.transcribe import _MANIFEST_KEYS, MODEL_IDS
+
+    model_key = next(
+        k for k, v in _MANIFEST_KEYS.items() if v == model
+    )
+    m = WhisperModel(
+        MODEL_IDS[model_key],
+        device="cpu",
+        compute_type="int8",
+        download_root=str(model_dir(model)),
+    )
+    del m
+    print(f"{model}: ready ({time.monotonic() - t0:.0f}s)")
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    names = args or list(SEPARATOR_MODELS)
+    names = args or list(SEPARATOR_MODELS) + list(WHISPER_MODELS)
     if "--all" in sys.argv:
         names = list(MODELS)
     for name in names:
@@ -61,6 +85,8 @@ def main() -> int:
             return 2
         if name in SEPARATOR_MODELS:
             prefetch_separator(name)
+        elif name in WHISPER_MODELS:
+            prefetch_whisper(name)
         else:
             print(f"{name}: prefetch not implemented yet (lazy at first use)")
     return 0

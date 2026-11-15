@@ -30,7 +30,15 @@ voice reference; the bed is the music reference) and seconds/device.
   - ``m5_<recording stem>_cut.wav`` per real recording (silence defaults)
   - ``m5_jumpcut.mp4`` (testsrc video + speech_silences.wav, keep_video)
 
-Run:  uv run python scripts/make_review_files.py [--m5] [--m7]
+``--m8`` runs ONLY the subtitle review (exclusive — unlike --m5/--m7 it
+does not also run the M6 default chain): each real recording through
+``run_pipeline([subtitles])`` on the job device with both models —
+  - ``m8_<stem>_fast.srt``      (faster-whisper small)
+  - ``m8_<stem>_accurate.srt``  (faster-whisper large-v3-turbo)
+and reports per recording/language/cues/seconds/device plus a dedicated
+turbo VRAM measurement (VramSampler around one accurate run on GPU).
+
+Run:  uv run python scripts/make_review_files.py [--m5] [--m7] [--m8]
 """
 from __future__ import annotations
 
@@ -67,6 +75,7 @@ from tests.audio_metrics import (  # noqa: E402
 
 REAL = ROOT / "tests" / "fixtures" / "real"
 SPEECH_SIL = ROOT / "tests" / "fixtures" / "generated" / "speech_silences.wav"
+SPEECH = ROOT / "tests" / "fixtures" / "generated" / "speech.wav"
 REVIEW = ROOT / "data" / "review"
 FPS = 25.0
 
@@ -469,6 +478,145 @@ def _m7_report(rows: list[dict]) -> None:
         )
 
 
+# ---- M8: subtitle review files --------------------------------------------------
+
+
+def _m8_run(rec: Path, tmp: Path, device: str, model_key: str) -> dict:
+    """One recording through the real pipeline with ``subtitles{model}``;
+    copies the SRT to ``data/review/m8_<stem>_<model>.srt`` and returns
+    language/cues/seconds/device/fallback pulled from the progress rows."""
+    p = probe(rec)
+    job_root = tmp / f"{rec.stem.replace(' ', '_')}_m8_{model_key}"
+    stage: dict = {}
+    msgs: list = []
+
+    def on_progress(prog):
+        if prog.stage_seconds is not None:
+            stage["row"] = prog
+        if prog.message_code:
+            msgs.append(prog)
+
+    outs = run_pipeline(
+        media_path=rec,
+        probe=p,
+        audio_stream_index=p.audio[0].index,
+        ops=[("subtitles", {"model": model_key})],
+        output=OutputSpec(audio_format="wav", keep_video=False),
+        job_root=job_root,
+        on_progress=on_progress,
+        should_cancel=lambda: False,
+        device=device,
+        display_name=rec.stem,
+    )
+    srt = next(o for o in outs if o.kind == "subtitle")
+    dst = REVIEW / f"m8_{rec.stem}_{model_key}.srt"
+    shutil.copy2(srt.path, dst)
+
+    lang = next(
+        (m.message_params for m in msgs
+         if m.message_code == "language_detected"), {}
+    )
+    written = next(
+        (m.message_params for m in reversed(msgs)
+         if m.message_code == "subtitles_written"), {}
+    )
+    row = stage.get("row")
+    return {
+        "path": dst,
+        "language": written.get("language") or lang.get("language") or "?",
+        "lang_prob": lang.get("prob"),
+        "cues": written.get("count"),
+        "seconds": row.stage_seconds if row else None,
+        "device": row.device if row else device,
+        "fallback": row.fallback_reason if row else None,
+    }
+
+
+def _m8_turbo_vram() -> dict:
+    """Turbo VRAM on this GPU: VramSampler around model load + one
+    accurate transcription of the ~5 s speech fixture (M8 constraint:
+    measured, not estimated)."""
+    from backend.core.gpu import VramSampler
+    from backend.media import transcribe
+
+    import ctranslate2
+
+    compute = (
+        "int8_float32"
+        if "int8_float32"
+        in ctranslate2.get_supported_compute_types("cuda")
+        else "float32"
+    )
+    with VramSampler() as vs:
+        res = transcribe.transcribe_file(
+            SPEECH, model="accurate", device="gpu"
+        )
+    return {
+        "peak_mb": vs.peak_mb,
+        "compute_type": compute,
+        "device": res.device,
+        "oom_fallback": res.oom_fallback,
+        "cues_src": SPEECH.name,
+    }
+
+
+def _m8(recordings: list[Path], device: str) -> list[dict]:
+    rows = []
+    vram = None
+    if device == "gpu":
+        try:
+            print("measuring large-v3-turbo VRAM on GPU…")
+            vram = _m8_turbo_vram()
+        except Exception as exc:  # report, don't kill the review run
+            vram = {"error": str(exc)}
+            print(f"  NOTE: turbo VRAM measurement failed: {exc}")
+    with tempfile.TemporaryDirectory(prefix="m8_review_") as td:
+        tmp = Path(td)
+        for rec in recordings:
+            print(f"processing {rec.name} (subtitles fast + accurate)…")
+            rows.append(
+                {
+                    "stem": rec.stem,
+                    "dur_s": probe(rec).duration_s,
+                    "runs": {
+                        k: _m8_run(rec, tmp, device, k)
+                        for k in ("fast", "accurate")
+                    },
+                }
+            )
+    print()
+    if vram:
+        if "error" in vram:
+            print(f"turbo VRAM: measurement failed: {vram['error']}")
+        else:
+            print(
+                f"turbo VRAM: peak +{vram['peak_mb']} MB on GPU"
+                f" (compute {vram['compute_type']},"
+                f" device {vram['device']},"
+                f" oom_fallback={vram['oom_fallback']})"
+            )
+    print(
+        f"{'recording':<28} {'model':<9} {'lang':>10} {'cues':>5}"
+        f" {'secs':>6} {'dev':>4}  file"
+    )
+    for r in rows:
+        for k, run in r["runs"].items():
+            lang = run["language"]
+            if run["lang_prob"] is not None:
+                lang = f"{lang}({run['lang_prob']:.2f})"
+            secs = (
+                f"{run['seconds']:6.1f}" if run["seconds"] is not None
+                else "     ?"
+            )
+            fb = f"  ({run['fallback']})" if run["fallback"] else ""
+            print(
+                f"{r['stem']:<28} {k:<9} {lang:>10}"
+                f" {run['cues']!s:>5} {secs}"
+                f" {run['device']:>4}  {run['path'].name}{fb}"
+            )
+    return rows
+
+
 # ---- M5: silence review files (unchanged, behind --m5) --------------------------
 
 
@@ -555,6 +703,9 @@ def main() -> int:
     REVIEW.mkdir(parents=True, exist_ok=True)
     device = _job_device()
     print(f"job device: {device}")
+    if "--m8" in sys.argv[1:]:
+        _m8(recordings, device)
+        return 0
     rows, rows_b, rows7 = [], [], []
     with tempfile.TemporaryDirectory(prefix="m6_review_") as td:
         tmp = Path(td)

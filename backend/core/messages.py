@@ -29,6 +29,12 @@ MESSAGES: dict[str, str] = {
     ),
     "breaths_reduced": "Made {count} breaths quieter by about {db} dB",
     "separated": "Separated voice and music ({output})",
+    "subtitles_written": "Wrote {count} subtitle lines ({language})",
+    "language_detected": "Detected language: {language}",
+    "trim_outside_preview": (
+        "The trim range is outside the previewed part —"
+        " nothing was trimmed."
+    ),
     # device fallbacks / warnings (SPEC §9)
     "gpu_fallback": (
         "Graphics memory ran out. Running this step on the processor"

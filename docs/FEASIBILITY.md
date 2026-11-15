@@ -33,6 +33,29 @@ Generated from a **real run** of `uv run python scripts/feasibility.py` on this 
 
 Transcript (both devices): *"the quick brown fox jumps over the lazy dog. sound system test number one."*
 
+**M8 addition (2026-11-15, measured by `scripts/make_review_files.py --m8`):**
+`large-v3-turbo` (mobiuslabsgmbh repo) on GPU — peak VRAM delta **+1661 MB**
+(`int8_float32`, `VramSampler` over model load + a ~5 s transcription;
+no OOM on the 4 GB GTX 1650, but ~2.4 GB headroom — never run it beside
+MDX in the same job). Pipeline timings on the 19–33 s real recordings:
+`fast` 8.7–11.9 s, `accurate` 12.5–15.9 s on GPU (all `ar`, 0.71–0.92
+confidence; ~6 s of each run is the disposable whisper subprocess'
+import+model load). The 1.1–1.5 GB estimate from the M8 plan was
+optimistic — measured is ~1.6 GB.
+
+**Windows teardown crash (faster-whisper#1293, reproduced here):**
+faster-whisper 1.1.1 + CTranslate2 4.5.0 on CUDA calls `abort()` from the
+`cuda_malloc_async` teardown when the `WhisperModel` is freed — `del
+model` or interpreter exit, flaky on ~30 s inputs, near-reliable on
+≥ 60 s (exit code 127 / 0xC0000409; CPU is unaffected). It is not a
+Python exception and cannot be caught, and `unload_model(to_cpu=True)`
+does not help. **Workaround in place:** every whisper attempt runs in a
+disposable child (`python -m backend.media.transcribe_child`) that emits
+a JSON-lines protocol on stdout and exits via `os._exit`, skipping all
+C++ destructors; the parent retries once on CPU for *any* child failure
+(the in-process OOM-only ladder generalised). Verified: 30 min of speech
+on `small`/GPU completes in ~5.1 min (227 segments) and exits 0.
+
 Max observed VRAM delta: **2312 MB** (MDX `Kim_Vocal_2` on CUDA EP) — under the 3 GB
 budget but the heaviest single stage measured. htdemucs emits 4 stems
 (Vocals/Drums/Bass/Other); the "instrumental" stem of SPEC §2 is a composition

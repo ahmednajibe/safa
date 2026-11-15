@@ -45,6 +45,10 @@ class OpContext:
     out_dir: Path | None = None
     audio_format: str = "wav"
     display_stem: str | None = None
+    # Preview jobs: (start_s, end_s) of the decoded region in SOURCE time.
+    # Length-changing ops whose params are source-time (trim) must shift
+    # by -preview[0] and clip to the decoded duration (M8 Task 0).
+    preview: tuple[float, float] | None = None
 
 
 @dataclass

@@ -18,6 +18,7 @@ KARAOKE_DISABLED_REASONS = {
     "breaths": "Off while Karaoke is on: breath detection needs a voice.",
     "enhance": "Off while Karaoke is on: voice polish works on speech.",
     "silence": "Off while Karaoke is on: speech detection needs a voice.",
+    "subtitles": "Off while Karaoke is on: transcription needs a voice.",
 }
 
 REASON_NOT_AVAILABLE = "Not available on this computer"

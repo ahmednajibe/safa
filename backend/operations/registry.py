@@ -262,11 +262,18 @@ OPERATIONS: dict[str, OpSpec] = {
             ParamSpec("language", "Language", "select", "auto", options=_opts(
                 ("auto", "Auto-detect"), ("en", "English"), ("ar", "Arabic"),
                 ("fr", "French"), ("de", "German"), ("es", "Spanish"),
-                ("tr", "Turkish"),
+                ("tr", "Turkish"), ("ur", "Urdu"),
             )),
             ParamSpec("format", "Format", "select", "srt", options=_opts(
                 ("srt", "SRT"), ("vtt", "VTT"), ("both", "Both"),
             )),
+            ParamSpec("model", "Model", "select", "fast", options=_opts(
+                ("fast", "Fast"), ("accurate", "Accurate"),
+            )),
+            ParamSpec("max_line_chars", "Longest line", "number", 42,
+                      min=20, max=80, advanced=True),
+            ParamSpec("max_lines", "Lines per caption", "number", 2,
+                      min=1, max=4, advanced=True),
         ],
     ),
 }
