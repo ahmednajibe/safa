@@ -1,0 +1,5 @@
+Design review round for F:\sound_system before building milestone M9 (the full user interface). Read docs/superpowers/plans/2026-11-15-m9-ui.md (draft with open questions), docs/UI_DESIGN.md (all sections), docs/SPEC.md sections 5, 9-12, the existing frontend in frontend/src, and the backend API in backend/api/*.py.
+
+Users: the user and Arabic-speaking friends, non-experts, Windows laptops, Edge/Chrome. App is local (127.0.0.1:8790), dark true-black design (UI_DESIGN), React + TypeScript + Tailwind v4 + wavesurfer.js.
+
+Load and use the skills that fit: brainstorming, design-taste-frontend (app-screen rules), web-design-guidelines, make-interfaces-feel-better, webapp-testing. You may read files; do NOT write or change files, no installs, never delete anything. Reply max ~500 words, bullets: answer the 6 open questions concretely (component names, hook APIs, exact libraries/versions only if needed, test flows), list anything wrong or missing in the draft vs UI_DESIGN/SPEC/backend API, and the 5 UX risks most likely to hurt a non-expert Arabic user.
