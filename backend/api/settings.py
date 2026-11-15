@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import threading
 
+from pathlib import Path
+
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel
 
@@ -88,3 +90,18 @@ def pick_output_dir(request: Request):
         }
     finally:
         _PICK_LOCK.release()
+
+
+@router.post("/api/settings/output-dir/reveal")
+def reveal_output_dir(request: Request):
+    """Show the configured output folder in File Explorer (SPEC §12 —
+    settings popover "Show in folder"). 422 ``no_saved_path`` when unset."""
+    store = request.app.state.store
+    raw = store.get_setting("output_dir")
+    if not raw:
+        return err(422, "no_saved_path", _MSG["no_saved_path"])
+    p = Path(raw)
+    if not p.is_dir():
+        return err(422, "no_saved_path", _MSG["no_saved_path"])
+    output_dir.reveal_in_explorer(p)
+    return {"revealed": True, "path": str(p)}

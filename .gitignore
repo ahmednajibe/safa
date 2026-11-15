@@ -14,3 +14,4 @@ tests/fixtures/generated/
 tests/fixtures/real/
 graphify-out/
 .pytest_tmp/
+.pw-browsers/
