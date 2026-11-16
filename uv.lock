@@ -353,10 +353,10 @@ name = "diffq-fixed"
 version = "0.2.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cython" },
-    { name = "numpy" },
+    { name = "cython", marker = "sys_platform != 'darwin' or (extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124') or (extra != 'extra-12-sound-system-cpu' and extra != 'extra-12-sound-system-cu124')" },
+    { name = "numpy", marker = "sys_platform != 'darwin' or (extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124') or (extra != 'extra-12-sound-system-cpu' and extra != 'extra-12-sound-system-cu124')" },
     { name = "torch", version = "2.5.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-12-sound-system-cpu') or (platform_machine != 'aarch64' and extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124') or (platform_python_implementation != 'CPython' and extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124') or (sys_platform != 'linux' and extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124')" },
-    { name = "torch", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin' or (extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124') or (extra != 'extra-12-sound-system-cpu' and extra != 'extra-12-sound-system-cu124')" },
+    { name = "torch", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124') or (extra != 'extra-12-sound-system-cpu' and extra != 'extra-12-sound-system-cu124')" },
     { name = "torch", version = "2.5.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-12-sound-system-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-12-sound-system-cpu') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'extra-12-sound-system-cpu') or (sys_platform == 'darwin' and extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124') or (sys_platform == 'linux' and extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124')" },
     { name = "torch", version = "2.5.1+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "(sys_platform != 'darwin' and extra == 'extra-12-sound-system-cu124') or (extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124')" },
 ]
@@ -1479,7 +1479,7 @@ dependencies = [
     { name = "ctranslate2" },
     { name = "deepfilterlib" },
     { name = "deepfilternet" },
-    { name = "diffq-fixed" },
+    { name = "diffq-fixed", marker = "sys_platform != 'darwin' or (extra == 'extra-12-sound-system-cpu' and extra == 'extra-12-sound-system-cu124')" },
     { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "numba" },
@@ -1556,7 +1556,7 @@ requires-dist = [
     { name = "ctranslate2", specifier = "==4.5.0" },
     { name = "deepfilterlib", specifier = "==0.5.6" },
     { name = "deepfilternet", specifier = "==0.5.6" },
-    { name = "diffq-fixed", specifier = "==0.2.4" },
+    { name = "diffq-fixed", marker = "sys_platform != 'darwin'", specifier = "==0.2.4" },
     { name = "fastapi" },
     { name = "faster-whisper", specifier = "==1.1.1" },
     { name = "numba", specifier = ">=0.68.1" },

@@ -11,6 +11,11 @@
 # the package works without RPM Fusion. User data lives in
 # ~/.local/share/safa-data and survives uninstall (no %postun deletion).
 
+# The bundled python-build-standalone runtime ships libs with its own
+# build-time rpath (/tools/deps/lib); harmless at runtime, but rpmbuild's
+# check-rpaths rejects it. The payload is a self-contained /opt tree.
+%global __brp_check_rpaths %{nil}
+
 Name:           %{safapkg}
 Version:        %{safaver}
 Release:        1%{?dist}

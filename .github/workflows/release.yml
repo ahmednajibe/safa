@@ -78,6 +78,11 @@ jobs:
               -Certificate $cert -TimestampServer "http://timestamp.digicert.com" | Out-Null
           }
 
+      - name: project env (release_info / model packs / smoke test)
+        shell: pwsh
+        # package scripts call `uv run --no-sync` — the venv must exist.
+        run: uv sync --frozen --no-dev --extra cpu
+
       - name: build portable packages (cpu + gpu split)
         shell: pwsh
         run: |
@@ -108,7 +113,7 @@ jobs:
           $inst = "data\tmp\ci-inst"
           & $exe.FullName /VERYSILENT /NORESTART /CURRENTUSER "/DIR=$PWD\$inst" "/LOG=$PWD\data\tmp\ci-inst.log"
           if ($LASTEXITCODE -ne 0) { Get-Content data\tmp\ci-inst.log; throw "silent install failed" }
-          uv run python scripts\smoke_package.py $inst --device cpu
+          uv run --no-sync python scripts\smoke_package.py $inst --device cpu
           & "$inst\unins000.exe" /VERYSILENT /NORESTART | Out-Null
 
       - name: stage release assets
@@ -409,6 +414,11 @@ jobs:
     needs: wheel
     runs-on: ubuntu-latest
     continue-on-error: true
+    # flatpak-builder needs flatpak + xvfb-run: they live in this image
+    # (runtime matches the manifest's org.freedesktop 24.08).
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0

@@ -40,7 +40,9 @@ dependencies = [
     "torchaudio==2.5.1+cu124; extra == 'cu124' and sys_platform != 'darwin'",
     "torchvision==0.20.1; extra != 'cu124' or sys_platform == 'darwin'",
     "torchvision==0.20.1+cu124; extra == 'cu124' and sys_platform != 'darwin'",
-    "diffq-fixed==0.2.4",
+    # diffq-fixed has no macOS wheel and a broken sdist; on darwin
+    # audio-separator uses the original diffq instead.
+    "diffq-fixed==0.2.4; sys_platform != 'darwin'",
     "silero-vad==5.1.2",
     "faster-whisper==1.1.1",
     "ctranslate2==4.5.0",
