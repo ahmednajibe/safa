@@ -66,8 +66,13 @@ def _run(args: argparse.Namespace) -> None:
     from faster_whisper import WhisperModel
 
     from backend.core.messages import msg
-    from backend.core.models_manifest import model_dir
+    from backend.core.models_manifest import model_dir, pinned_snapshot_dir
 
+    # A manifest-pinned download writes ``snapshots/<rev>`` but no
+    # ``refs/main`` — resolving by name offline on a fresh install then
+    # fails. Hand the engine the snapshot dir directly when it is on
+    # disk; otherwise keep the legacy name resolution.
+    snap = pinned_snapshot_dir(args.model_manifest)
     kw = {
         "device": args.device,
         "compute_type": _compute_type(args.device),
@@ -75,7 +80,7 @@ def _run(args: argparse.Namespace) -> None:
     }
     if args.device == "cpu":
         kw["cpu_threads"] = 4
-    model = WhisperModel(args.model_id, **kw)
+    model = WhisperModel(str(snap) if snap is not None else args.model_id, **kw)
     segments, info = model.transcribe(
         args.wav,
         language=args.language,

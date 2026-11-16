@@ -65,3 +65,14 @@ export function isIdentity(tl: TimelineData): boolean {
     Math.abs(s[0].speed - 1) <= EPS
   );
 }
+
+/** Whether A/B needs time translation at all: real cuts, or a preview
+ *  timeline whose source domain is shifted by ``srcOffset`` — a preview
+ *  job's map is region-local even when it is "identity", so an uncut
+ *  preview still translates by its start_s (R2 #13b). */
+export function needsTranslation(
+  tl: TimelineData | null,
+  srcOffset = 0,
+): boolean {
+  return tl !== null && (!isIdentity(tl) || srcOffset !== 0);
+}

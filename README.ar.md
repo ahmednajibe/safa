@@ -258,31 +258,38 @@ curl -fsSL .../install.sh | sh -s -- --variant cuda   # NVIDIA
 أو `--variant cuda`. تُتحقق بصمة SHA-256 للأرشيف مقابل `SHA256SUMS.txt`
 المنشور قبل فك الضغط.
 
+`--variant cuda` يثبّت حمولة المعالج ثم ينزّل بيئة CUDA 12.4
+(~5 غيغا، ببصمة مُتحققة من `requirements-cu124.txt` داخل الأرشيف)
+بأداة `tools/uv` المرفقة — نفس آلية `safa setup --device cuda`. لا
+يوجد `-cuda.tar.gz` في الإصدار: حمولة ~4.9 غيغا تتجاوز حد ملفات
+GitHub البالغ 2 غيغابايت.
+
 ### حزمة ‎.deb (ديبيان / أوبونتو / مينت)
 <!-- method:linux-deb-cpu -->
 <!-- method:linux-deb-cuda -->
 
 ```sh
-sudo apt install ./Safa-<ver>-linux-x64-cpu.deb    # أو -cuda.deb
+sudo apt install ./Safa-<ver>-linux-x64-cpu.deb
 ```
 
 يثبّت بيئة التشغيل كاملة في `/opt/safa` مع أمر `safa` وعنصر قائمة.
-**~0.8 غيغا** (CPU)؛ حزمة CUDA تغلّف حمولة GPU (~4.9 غيغا) — فوق حد
-ملفات GitHub البالغ 2 غيغابايت، فإن غابت عن الإصدار استخدم
-`install.sh --variant cuda`. ffmpeg مضمّن؛ البيانات في
-`~/.local/share/safa-data` وتبقى بعد `apt purge`. لا يحتاج إنترنت عدا
-تنزيل النماذج أول مرة (~600 ميغا).
+**~0.8 غيغا** (CPU). لا تُنشر حزمة .deb بنسخة CUDA — حمولة ~4.9 غيغا
+فوق حد ملفات GitHub البالغ 2 غيغابايت؛ لبطاقة NVIDIA شغّل
+`install.sh --variant cuda` (تجهيز cu124 عبر الإنترنت) أو
+`safa setup --device cuda` داخل حزمة المعالج المثبّتة. ffmpeg مضمّن؛
+البيانات في `~/.local/share/safa-data` وتبقى بعد `apt purge`. لا يحتاج
+إنترنت عدا تنزيل النماذج أول مرة (~600 ميغا).
 
 ### حزمة ‎.rpm (فيدورا)
 <!-- method:linux-rpm-cpu -->
 <!-- method:linux-rpm-cuda -->
 
 ```sh
-sudo dnf install ./Safa-<ver>-linux-x64-cpu.rpm    # أو -cuda.rpm
+sudo dnf install ./Safa-<ver>-linux-x64-cpu.rpm
 ```
 
-نفس تخطيط ‎.deb وقواعدها. `safa` و`safa-cuda` متعارضتان — ثبّت نسخة
-واحدة فقط.
+نفس تخطيط ‎.deb وقواعدها — معالج فقط؛ يستخدم CUDA نفس مسار التجهيز
+عبر الإنترنت (`install.sh --variant cuda` أو `safa setup --device cuda`).
 
 ### AppImage (CPU)
 <!-- method:linux-appimage -->
@@ -296,7 +303,8 @@ chmod +x Safa-<ver>-linux-x64.AppImage
 **~0.8 غيغا**، بلا تثبيت — البيانات في
 `${XDG_DATA_HOME:-~/.local/share}/safa-data` (يتجاوزها
 `APPIMAGE_DATA_DIR`). CPU فقط: AppImage بنسخة CUDA سيكون ~4.9 غيغا —
-فوق حد 2 غيغابايت — استخدم ‎.deb أو ‎.rpm.
+فوق حد 2 غيغابايت — استخدم `install.sh --variant cuda` أو
+`safa setup --device cuda`.
 
 ### Flatpak (تجريبي)
 <!-- method:linux-flatpak -->
@@ -317,17 +325,20 @@ flatpak install ./Safa-<ver>-linux-x64.flatpak
 <!-- method:linux-aur -->
 
 ```sh
-yay -S safa        # CPU
-# أو ابنِ packaging/aur/PKGBUILD يدويًا؛ بدّل رابط المصدر إلى أرشيف
-# cuda لنسخة NVIDIA.
+yay -S safa        # معالج — لبطاقة NVIDIA شغّل `safa setup --device cuda`
+                   # داخل الحزمة المثبّتة (لا يُنشر أرشيف cuda)
 ```
 
 ### الأرشيفات المحمولة
 <!-- method:linux-portable-cpu -->
 <!-- method:linux-portable-cuda -->
 
-`Safa-<ver>-linux-x64-cpu.tar.gz` / `-cuda.tar.gz` — فك الضغط وشغّل
-`./start.sh` من الداخل. البيانات تبقى في المجلد.
+`Safa-<ver>-linux-x64-cpu.tar.gz` — فك الضغط وشغّل `./start.sh` من
+الداخل. البيانات تبقى في المجلد. لا يُنشر `-cuda.tar.gz` (حد 2
+غيغابايت): حدّث شجرة المعالج بالأمر `uv pip install --python
+python/bin/python3 --system -r requirements-cu124.txt --require-hashes
+--extra-index-url https://download.pytorch.org/whl/cu124
+--index-strategy unsafe-best-match` عبر `tools/uv` المرفقة.
 
 ### من المصدر (لينكس)
 <!-- method:linux-source -->

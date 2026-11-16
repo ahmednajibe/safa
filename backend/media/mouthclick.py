@@ -56,6 +56,13 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage, signal
 
+try:
+    import numba
+
+    _HAVE_NUMBA = True
+except ImportError:  # pragma: no cover - numba ships via librosa/resampy
+    _HAVE_NUMBA = False
+
 _SPLIT_HZ = 2500.0   # complementary band split
 _MID_BAND = (500.0, 2500.0)
 
@@ -163,18 +170,101 @@ def _stft(x: np.ndarray, sr: int):
     return f, t, Z
 
 
+if _HAVE_NUMBA:
+
+    @numba.njit
+    def _median_row_nb(row: np.ndarray, out_r: np.ndarray, w: int) -> None:
+        """One row's running median, odd window ``w``, edge-replicated —
+        sorted-window slide, O(log w) per step."""
+        n = row.shape[0]
+        h = w // 2
+        win = np.empty(w)
+        for k in range(w):
+            idx = k - h
+            if idx < 0:
+                idx = 0
+            if idx >= n:
+                idx = n - 1
+            win[k] = row[idx]
+        win.sort()
+        out_r[0] = win[h]
+        for i in range(1, n):
+            old = row[i - 1 - h] if i - 1 - h >= 0 else row[0]
+            new = row[i + h] if i + h < n else row[n - 1]
+            j = -1
+            lo, hi2 = 0, w - 1
+            while lo <= hi2:
+                mid = (lo + hi2) // 2
+                if win[mid] == old:
+                    j = mid
+                    break
+                elif win[mid] < old:
+                    lo = mid + 1
+                else:
+                    hi2 = mid - 1
+            while j > 0 and win[j - 1] == old:
+                j -= 1
+            if j < 0:
+                for k in range(w):
+                    if win[k] == old:
+                        j = k
+                        break
+            for k in range(j, w - 1):
+                win[k] = win[k + 1]
+            k = w - 2
+            if new >= win[w - 2]:
+                win[w - 1] = new
+            else:
+                while k >= 0 and win[k] > new:
+                    win[k + 1] = win[k]
+                    k -= 1
+                win[k + 1] = new
+            out_r[i] = win[h]
+
+    @numba.njit(parallel=True)
+    def _median_rows_nb_par(a: np.ndarray, w: int) -> np.ndarray:
+        out = np.empty_like(a)
+        for r in numba.prange(a.shape[0]):
+            _median_row_nb(a[r], out[r], w)
+        return out
+
+    @numba.njit
+    def _median_rows_nb_seq(a: np.ndarray, w: int) -> np.ndarray:
+        out = np.empty_like(a)
+        for r in range(a.shape[0]):
+            _median_row_nb(a[r], out[r], w)
+        return out
+
+
+# Thread-pool dispatch costs ~4 ms per call — for the small per-span
+# clamp windows the serial kernel wins outright.
+_MEDIAN_PAR_MIN = 1_000_000
+
+
+def _median_rows(a: np.ndarray, w: int) -> np.ndarray:
+    """Per-bin median along the time axis, odd window ``w``,
+    edge-replicated — the same element ``ndimage.median_filter(a,
+    (1, w), "nearest")`` picks (verified bit-identical), ~30× faster
+    than the scipy rank filter (R2 #7)."""
+    a = np.ascontiguousarray(a)
+    if _HAVE_NUMBA and w % 2 == 1 and a.shape[1] > 0:
+        try:
+            if a.size >= _MEDIAN_PAR_MIN:
+                return _median_rows_nb_par(a, w)
+            return _median_rows_nb_seq(a, w)
+        except Exception:  # pragma: no cover - JIT failure → scipy
+            pass
+    return ndimage.median_filter(a, size=(1, w), mode="nearest")
+
+
 def _baseline(db: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Per-bin (baseline_dB, excess) — two-stage temporal median + capped
     MAD. The clip-then-re-median keeps bursts from raising their own
     floor (MAD self-masking was M4c's biggest miss)."""
-    med1 = ndimage.median_filter(db, size=(1, _MED_FRAMES), mode="nearest")
+    med1 = _median_rows(db, _MED_FRAMES)
     clipped = np.minimum(db, med1 + _BASE_CLIP_DB)
-    base = ndimage.median_filter(
-        clipped, size=(1, _MED_FRAMES), mode="nearest"
-    )
-    mad = ndimage.median_filter(
-        np.abs(db - base), size=(1, _MED_FRAMES), mode="nearest"
-    )
+    base = _median_rows(clipped, _MED_FRAMES)
+    mad = _median_rows(np.abs(db - base), _MED_FRAMES)
     floor = base + _MAD_SIGMA * np.minimum(mad, _MAD_CAP_DB)
     return floor, db - floor
 

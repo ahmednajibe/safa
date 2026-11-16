@@ -6,6 +6,8 @@ import {
   getSettings,
 } from "../api/client";
 import type { Job } from "../api/types";
+import { adoptJob } from "../actions";
+import { isMediaReady } from "../lib/media";
 import { pickHydrationJob, SS_JOB, SS_MEDIA } from "../lib/session";
 import { useStore } from "../state/store";
 import type { Lang } from "../state/reducers";
@@ -40,6 +42,10 @@ export function useSync(): void {
   } = useStore();
   const booted = useRef(false);
   const chan = useRef<BroadcastChannel | null>(null);
+  // The mount-once channel handler needs the *current* media id —
+  // stale mount state would adopt every foreign job unconditionally.
+  const mediaRef = useRef(media);
+  mediaRef.current = media;
 
   // mount: prefs → settings → session resume → cross-tab channel
   useEffect(() => {
@@ -69,7 +75,7 @@ export function useSync(): void {
     } else {
       getMedia(mediaId)
         .then((m) => {
-          if (m.ready?.peaks && m.lufs != null) {
+          if (isMediaReady(m)) {
             dispatchMedia({ type: "media-ready", media: m });
             return true;
           }
@@ -135,7 +141,16 @@ export function useSync(): void {
           });
         } else if (d?.type === "job" && d.jobId) {
           getJob(d.jobId)
-            .then((j: Job) => dispatchJob({ type: "set-active", job: j }))
+            .then((j: Job) =>
+              adoptJob(
+                {
+                  media: mediaRef.current,
+                  dispatchMedia,
+                  dispatchJob,
+                },
+                j,
+              ),
+            )
             .catch(() => {});
         }
       };

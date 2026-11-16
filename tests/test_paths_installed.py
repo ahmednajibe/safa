@@ -212,3 +212,31 @@ def test_ensure_data_marker_skipped_on_env_override(tmp_path):
     data = _ensure_marker(app, {"SOUND_SYSTEM_DATA_DIR": str(env_dir)})
     assert data == env_dir
     assert not (env_dir / ".safa-data").exists()
+
+
+def test_ensure_data_marker_skips_foreign_nonempty_dir(tmp_path):
+    """R2 #9: a folder the user filled before Safa arrived (no app.db)
+    is never marked — the uninstaller would offer to delete Safa data
+    from a directory that is really theirs."""
+    app = _fake_root(tmp_path)
+    foreign = tmp_path / "Documents"
+    foreign.mkdir()
+    (foreign / "tax return.pdf").write_text("not safa's")
+    (app / "installed.json").write_text(
+        json.dumps({"data_dir": str(foreign)}), encoding="utf-8")
+    _ensure_marker(app, {})
+    assert not (foreign / ".safa-data").exists()
+
+
+def test_ensure_data_marker_ok_when_app_db_present(tmp_path):
+    """A dir already holding app.db is provably in use by Safa — a
+    reinstall/upgrade may re-mark it even with other files around."""
+    app = _fake_root(tmp_path)
+    chosen = tmp_path / "Safa Data"
+    chosen.mkdir()
+    (chosen / "app.db").write_bytes(b"sqlite")
+    (chosen / "notes.txt").write_text("foreign file, folder stays")
+    (app / "installed.json").write_text(
+        json.dumps({"data_dir": str(chosen)}), encoding="utf-8")
+    _ensure_marker(app, {})
+    assert (chosen / ".safa-data").is_file()

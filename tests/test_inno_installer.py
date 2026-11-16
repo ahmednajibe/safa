@@ -68,7 +68,7 @@ def test_uninstall_delete_offer_requires_marker():
     assert "usPostUninstall" in COMMON
     post = COMMON[COMMON.index("CurUninstallStep = usPostUninstall"):]
     assert "FileExists" in post and ".safa-data" in post
-    assert "DelTree" in post
+    assert "DeleteOwnedDataEntries(D)" in post
 
 
 def test_uninstall_shows_kept_path_and_removes_installed_json():
@@ -93,3 +93,68 @@ def test_gpu_slice_guard_present():
     text = (INNO / "offline-gpu.iss").read_text(encoding="utf-8")
     assert "slicecount.txt" in text
     assert "InitializeSetup" in text
+
+
+# ---- R2 #9: pre-existing data folders must survive install/uninstall --------------
+
+
+def test_marker_skipped_for_preexisting_nonempty_data_dir():
+    """``.safa-data`` is written only when the data folder was absent or
+    empty BEFORE install — a pre-existing Documents folder with user
+    files must never be marked as Safa-owned."""
+    idx = COMMON.index("procedure WriteInstalledJson")
+    body = COMMON[idx:idx + 3500]
+    # the empty/absent capture runs BEFORE ForceDirectories materialises it
+    assert "DirIsEmpty" in body
+    assert body.index("DirIsEmpty") < body.index("ForceDirectories")
+    # the marker write is conditional on that capture
+    midx = body.index(".safa-data")
+    assert "if " in body[:midx]
+
+
+def test_uninstall_deletes_only_safa_owned_entries():
+    """Uninstall 'Yes' deletes only entries the app itself creates
+    (paths.py/storage/settings enumeration), then removes the folder
+    iff nothing foreign remains — never a bare DelTree of the root."""
+    post = _uspostuninstall_segment()
+    assert "DelTree(D, True, True, True)" not in post
+    assert "DeleteOwnedDataEntries(D)" in post
+    assert "RemoveDir(D)" in post
+    idx = COMMON.index("procedure DeleteOwnedDataEntries")
+    body = COMMON[idx:idx + 2500]
+    for owned in ("app.db", "jobs", "media", "logs", "models", "tmp",
+                  ".safa-data"):
+        assert owned in body, owned
+
+
+def test_dir_is_empty_skips_dot_entries():
+    """Inno's ``FindFirst`` matches '.' / '..' — ``DirIsEmpty`` must skip
+    them or an existing-but-empty data folder never gets the marker
+    (verified live: silent install logged 'not empty' on an empty dir)."""
+    idx = COMMON.index("function DirIsEmpty")
+    body = COMMON[idx:idx + 1800]
+    assert "'.'" in body and "'..'" in body
+    assert "FindNext" in body   # iterates past the dot entries
+
+
+# ---- R2 #11: interactive installs must honour the wizard's variant page ----------
+
+
+def test_online_variant_wizard_choice_honored():
+    """``SelectedVariant()`` must read ``VariantPage.Values`` in
+    interactive mode — ``/VARIANT`` / auto-detect may only decide when
+    the param was given explicitly or the install is silent."""
+    text = (INNO / "online.iss").read_text(encoding="utf-8")
+    idx = text.index("function SelectedVariant")
+    body = text[idx:idx + 1800]
+    assert "VariantPage.Values" in body
+    assert "WizardSilent" in body
+
+
+def test_online_variant_page_defaults_to_detection():
+    """The wizard's preselect follows GPU detection — a CPU-only machine
+    must not default to cu124 (the runtime install would fail on it)."""
+    text = (INNO / "online.iss").read_text(encoding="utf-8")
+    idx = text.index("procedure InitializeWizard")
+    body = text[idx:idx + 2000]
+    assert "GpuDetected" in body[body.index("VariantPage.Values"):]

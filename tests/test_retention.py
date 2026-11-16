@@ -144,6 +144,39 @@ def test_keep_flag_survives(tmp_path):
     assert jdir.exists() and media_dir("m1", data).exists()
 
 
+def test_keep_set_after_listing_survives_sweep(tmp_path):
+    """R2 #14: the user hits Keep between the expired listing and the
+    per-job re-check — ``_expired``'s ``or job.keep`` is the guard the
+    SQL-level keep filter cannot provide. Row AND files must survive."""
+    data, db, store = _setup(tmp_path)
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=30)
+    _media_row(db, "m1", SPEECH)
+    j = _job(store, "m1", state="completed", finished_at=old)
+    jdir = job_dir(j.id, data)
+    out = jdir / "output" / "clean.wav"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(b"o" * 64)
+    media_dir("m1", data).mkdir(parents=True)
+
+    real_list = store.expired_terminal_jobs
+
+    def _flip(cutoff_iso):
+        jobs = real_list(cutoff_iso)   # unkept job is listed…
+        store.set_keep(j.id, True)     # …then Keep lands before re-check
+        return jobs
+
+    store.expired_terminal_jobs = _flip  # type: ignore[method-assign]
+    try:
+        stats = sweep(store, data, 7, now=now)
+    finally:
+        store.expired_terminal_jobs = real_list
+
+    assert stats["jobs"] == 0
+    assert store.get(j.id) is not None   # DB row survives
+    assert out.is_file()                 # and its files survive
+
+
 def test_never_retention_deletes_nothing(tmp_path):
     data, db, store = _setup(tmp_path)
     now = datetime.now(timezone.utc)

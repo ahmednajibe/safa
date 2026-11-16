@@ -177,10 +177,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ffmpeg
           mkdir -p tools/ffmpeg/bin
           cp "$(command -v ffmpeg)" "$(command -v ffprobe)" tools/ffmpeg/bin/
-      - name: package cpu + cuda tarballs
-        run: |
-          sh scripts/package-unix.sh --variant cpu
-          sh scripts/package-unix.sh --variant cuda
+      - name: package cpu tarball
+        # No cuda tarball: the ~4.9 GB payload exceeds the 2 GiB asset
+        # cap — install.sh --variant cuda provisions cu124 online from
+        # the hashed requirements-cu124.txt shipped inside this tarball.
+        run: sh scripts/package-unix.sh --variant cpu
       - name: stage release assets
         run: python scripts/list-release-assets.py dist_pkg --dest dist_release
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -240,12 +241,13 @@ jobs:
         with:
           name: linux
           path: dl-linux
-      - name: build .deb (cpu + cuda)
+      - name: build .deb (cpu)
+        # CPU only — a cuda .deb can never publish (2 GiB cap); the
+        # install.sh online provisioning path covers CUDA users.
         run: |
           mkdir -p dist_pkg
           cp dl-linux/Safa-*-linux-x64-*.tar.gz dist_pkg/
           sh scripts/package-linux.sh deb --variant cpu
-          sh scripts/package-linux.sh deb --variant cuda
       - name: apt install → health → purge keeps data
         run: |
           sudo apt-get install -y ./dist_pkg/Safa-*-linux-x64-cpu.deb
@@ -286,12 +288,13 @@ jobs:
         with:
           name: linux
           path: dl-linux
-      - name: build .rpm (cpu + cuda)
+      - name: build .rpm (cpu)
+        # CPU only — a cuda .rpm can never publish (2 GiB cap); the
+        # install.sh online provisioning path covers CUDA users.
         run: |
           mkdir -p dist_pkg
           cp dl-linux/Safa-*-linux-x64-*.tar.gz dist_pkg/
           sh scripts/package-linux.sh rpm --variant cpu
-          sh scripts/package-linux.sh rpm --variant cuda
       - name: dnf install → health → remove keeps data
         run: |
           dnf install -y dist_pkg/rpm/Safa-*-linux-x64-cpu.rpm
@@ -462,10 +465,10 @@ jobs:
       - name: drop assets over the 2 GiB release limit
         run: |
           # GitHub rejects release assets >= 2 GiB and one rejection fails
-          # the whole upload. CUDA .deb/.rpm/tarball payloads (~4.9 GB)
-          # land here; they are listed in the job log and skipped. Linux
-          # CUDA users follow the README fallback until a split/online
-          # path exists.
+          # the whole upload. Anything that still slips in oversize is
+          # listed in the job log and skipped (defence in depth — the
+          # CUDA linux payloads are no longer built at all; install.sh
+          # provisions cu124 online instead).
           find artifacts -maxdepth 1 -type f -size +2047M -print -delete \
             | sed 's/^/::warning::skipped oversize asset: /'
       - name: SHA256SUMS.txt over all merged assets

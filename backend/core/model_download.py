@@ -182,6 +182,16 @@ _WHISPER_REPOS = {
 }
 
 
+def _write_main_ref(cache: Path, repo: str, revision: str) -> None:
+    """``refs/main = <revision>`` — ``snapshot_download`` at a pinned
+    commit writes ``snapshots/<rev>`` but no ref, so resolving the model
+    by name afterwards fails. Write it for hub-layout compatibility
+    (R2 #8)."""
+    refs = cache / ("models--" + repo.replace("/", "--")) / "refs"
+    refs.mkdir(parents=True, exist_ok=True)
+    (refs / "main").write_text(revision + "\n", encoding="utf-8")
+
+
 def _download_whisper(
     model_id: str, on_progress: ProgressFn | None, cancel: CancelFn
 ) -> None:
@@ -229,6 +239,9 @@ def _download_whisper(
         tqdm_class=_Prog,
     )
     _check_cancel(cancel)
+    # R2 #8: a pinned download creates snapshots/<rev> but no refs/main;
+    # write it so name-based lookups work in the hub layout.
+    _write_main_ref(cache, repo, spec.revision)
     # Verify the recorded weights hash at the pinned snapshot — the
     # point of pinning.
     if spec.sha256:

@@ -25,8 +25,11 @@ troubleshooting):
   `install.sh` one-liner, unsigned .app in a .dmg (Right-click → Open),
   Homebrew formula, portable tarball, source.
 - [Linux — beta (x86_64)](README.md#install--linux-beta-x86_64):
-  `install.sh` one-liner (cpu/cuda), .deb, .rpm, AppImage (cpu),
-  experimental Flatpak bundle, AUR, portable tarballs, source.
+  `install.sh` one-liner (cpu; `--variant cuda` installs the cpu
+  payload then provisions the cu124 runtime online from the hashed
+  lock — no cuda tarball/.deb/.rpm ships, they exceed the 2 GiB
+  asset cap), .deb, .rpm, AppImage (cpu), experimental Flatpak
+  bundle, AUR, portable tarballs, source.
 - [Python — any OS](README.md#install--python-any-os):
   `pip install safa-audio` (or `uv tool install`) then `safa setup` —
   a ~1.5 MB bootstrap wheel that provisions the runtime on first run.

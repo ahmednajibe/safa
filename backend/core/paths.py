@@ -83,6 +83,11 @@ def ensure_data_marker() -> Path | None:
     it on startup so an upgrade/reinstall never loses it. Portable mode
     and ``SOUND_SYSTEM_DATA_DIR`` (Docker, tests) never mark — env-chosen
     dirs are not the installer's folder.
+
+    A folder that already holds foreign files and has no ``app.db`` is
+    never marked (R2): the uninstaller keys the data-deletion offer off
+    the marker, so marking someone else's Documents would put their
+    files one dialog away from deletion.
     """
     if PORTABLE or _data_env or not _INSTALLED.get("data_dir"):
         return None
@@ -94,8 +99,14 @@ def ensure_data_marker() -> Path | None:
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         marker = DATA_DIR / DATA_MARKER_NAME
-        if not marker.is_file():
-            marker.write_text(content, encoding="utf-8")
+        if marker.is_file():
+            return marker
+        foreign_in_use = any(DATA_DIR.iterdir()) and not (
+            DATA_DIR / "app.db"
+        ).is_file()
+        if foreign_in_use:
+            return None
+        marker.write_text(content, encoding="utf-8")
         return marker
     except OSError:
         return None

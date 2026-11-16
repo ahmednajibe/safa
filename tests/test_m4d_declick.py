@@ -299,10 +299,17 @@ def test_benchmark_sapi_speech(tmp_path):
 def _whisper_model():
     from faster_whisper import WhisperModel
 
-    from backend.core.models_manifest import model_dir
+    from backend.core.models_manifest import (
+        model_dir,
+        pinned_snapshot_dir,
+    )
 
+    # R2 #8: a pinned download has no refs/main — load the snapshot dir.
+    snap = pinned_snapshot_dir("whisper_small")
     return WhisperModel(
-        "small", device="cpu", compute_type="int8",
+        str(snap) if snap is not None else "small",
+        device="cpu",
+        compute_type="int8",
         download_root=str(model_dir("whisper_small")),
     )
 

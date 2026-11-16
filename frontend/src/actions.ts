@@ -6,11 +6,12 @@ import {
   cancelJob,
   createJob,
   deleteMedia,
+  getMedia,
   retryJob,
   uploadMedia,
 } from "./api/client";
 import { ApiError } from "./api/types";
-import type { Job } from "./api/types";
+import type { Job, MediaInfo } from "./api/types";
 import {
   canPickDir,
   canPickFiles,
@@ -18,6 +19,7 @@ import {
   saveAllToFolder,
   saveJobFileAs,
 } from "./lib/save";
+import { isMediaReady } from "./lib/media";
 import type { Store } from "./state/store";
 
 let uploadAbort: (() => void) | null = null;
@@ -129,6 +131,38 @@ export async function retryFailedJob(store: Store): Promise<void> {
   } catch {
     /* stay on the failed card */
   }
+}
+
+/** Adopt a job from History or a cross-tab broadcast: the dock's job
+ *  belongs to the loaded media (lib/session.ts), so a foreign job first
+ *  swaps its own file in. When that media was deleted (retention) the
+ *  media state is cleared instead — never pair one file's output with
+ *  another's original (R2 #13c). */
+export async function adoptJob(
+  store: Pick<Store, "media" | "dispatchMedia" | "dispatchJob">,
+  j: Job,
+  fetchMedia: (id: string) => Promise<MediaInfo> = getMedia,
+): Promise<void> {
+  const { media, dispatchMedia, dispatchJob } = store;
+  if (j.media_id !== media.mediaId) {
+    try {
+      const m = await fetchMedia(j.media_id);
+      if (m.ready?.error) {
+        dispatchMedia({
+          type: "media-error",
+          code: "prep_failed",
+          message: m.ready.error,
+        });
+      } else if (isMediaReady(m)) {
+        dispatchMedia({ type: "media-ready", media: m });
+      } else {
+        dispatchMedia({ type: "uploaded", media: m });
+      }
+    } catch {
+      dispatchMedia({ type: "clear" });
+    }
+  }
+  dispatchJob({ type: "set-active", job: j });
 }
 
 /* ---------- saving ---------- */

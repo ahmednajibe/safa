@@ -101,6 +101,30 @@ def model_dir(name: str) -> Path:
     return d
 
 
+def hf_cache_subdir(source: str) -> str | None:
+    """``huggingface:Systran/faster-whisper-small`` → the hub cache dir
+    name ``models--Systran--faster-whisper-small``; ``None`` for non-HF
+    sources."""
+    if not source.startswith("huggingface:"):
+        return None
+    repo = source.split(":", 1)[1].split()[0]
+    return "models--" + repo.replace("/", "--")
+
+
+def pinned_snapshot_dir(name: str) -> Path | None:
+    """On-disk HF snapshot dir for a manifest-pinned model — the dir to
+    hand to engines instead of a repo/size name. A pinned download writes
+    ``snapshots/<rev>`` but no ``refs/main``, so resolving by name fails
+    offline on a fresh install. ``None`` for non-HF specs or when the
+    snapshot is not on disk."""
+    spec = MODELS[name]
+    sub = hf_cache_subdir(spec.source)
+    if sub is None or not spec.revision:
+        return None
+    snap = model_dir(name) / sub / "snapshots" / spec.revision
+    return snap if snap.is_dir() else None
+
+
 def configure_model_env(offline: bool = True) -> None:
     """Point every library cache at ``models/``. Call before ML imports.
 

@@ -1,5 +1,6 @@
-# AUR PKGBUILD — Safa (beta). Builds from the linux-x64-cpu tarball; a
-# safa-cuda variant package uses linux-x64-cuda.tar.gz instead.
+# AUR PKGBUILD — Safa (beta). Builds from the linux-x64-cpu tarball.
+# No cuda tarball ships (>2 GiB cap): NVIDIA users run
+# `safa setup --device cuda` (or install.sh --variant cuda) afterwards.
 # Replace <owner>/<sha256> at release; names come from release-info.toml.
 pkgname=safa
 pkgver=0.1.0
@@ -16,10 +17,15 @@ package() {
     install -dm755 "$pkgdir/opt/safa"
     cp -a "Safa-${pkgver}-linux-x64-cpu/." "$pkgdir/opt/safa/"
     chmod +x "$pkgdir/opt/safa/python/bin/"* "$pkgdir/opt/safa/tools/ffmpeg/bin/"* 2>/dev/null || true
+    # System package → installed mode: portable.txt would pin data
+    # inside the root-owned /opt tree; the wrapper sets the XDG dir.
+    rm -f "$pkgdir/opt/safa/portable.txt"
 
     install -dm755 "$pkgdir/usr/bin"
     cat > "$pkgdir/usr/bin/safa" <<'EOF'
 #!/bin/sh
+: "${XDG_DATA_HOME:=$HOME/.local/share}"
+export SOUND_SYSTEM_DATA_DIR="$XDG_DATA_HOME/safa-data"
 cd /opt/safa
 exec /opt/safa/python/bin/python3 -m backend.launcher "$@"
 EOF

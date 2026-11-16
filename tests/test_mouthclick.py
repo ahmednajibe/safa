@@ -162,6 +162,51 @@ def test_repair_attenuates_click_band():
     assert len(y) == len(x)
 
 
+def test_repair_reverts_when_ar_fill_would_amplify(monkeypatch):
+    """R2 #15: a repair that would make the span louder in the high band
+    must revert to the original samples — the hard guard on ``e_after``.
+    Removing the guard must fail this test."""
+    import backend.media.mouthclick as mc
+
+    # High-band-only content: mid-band RMS stays under the in-speech
+    # floor so the isolated tick takes the AR path.
+    t = np.arange(SR) / SR
+    x = (0.01 * np.sin(2 * np.pi * 6000 * t)).astype(np.float64)
+    a, b = int(0.5 * SR), int(0.5 * SR) + 48  # 1 ms tick
+    calls = []
+
+    def loud_fill(high, ra, rb, flagged, sr):
+        calls.append((ra, rb))
+        return np.full(rb - ra, 0.4)  # ~30 dB louder than the 0.01 sine
+
+    monkeypatch.setattr(mc, "_ar_fill", loud_fill)
+    y = mc.repair_mouth_clicks(x, SR, [(a, b)], mode="normal")
+    assert calls, "AR fill never ran — test is vacuous"
+    # band split+sum is not bit-exact (1e-18), a landed 0.4-fill is ~0.4
+    np.testing.assert_allclose(y, x, rtol=0, atol=1e-12)
+
+
+def test_repair_reverts_when_clamp_would_amplify(monkeypatch):
+    """Same hard guard, STFT-clamp path (forced by mode='residual')."""
+    import backend.media.mouthclick as mc
+
+    rng = np.random.default_rng(7)
+    t = np.arange(SR * 2) / SR
+    x = (0.05 * np.sin(2 * np.pi * 220 * t)
+         + 0.01 * rng.standard_normal(len(t))).astype(np.float64)
+    calls = []
+
+    def loud_clamp(high, pa, pb, sr):
+        calls.append((pa, pb))
+        return high[pa:pb] * 8.0
+
+    monkeypatch.setattr(mc, "_stft_clamp", loud_clamp)
+    a, b = int(1.0 * SR), int(1.0 * SR) + 96
+    y = mc.repair_mouth_clicks(x, SR, [(a, b)], mode="residual")
+    assert calls, "clamp never ran — test is vacuous"
+    np.testing.assert_allclose(y, x, rtol=0, atol=1e-12)
+
+
 def test_detect_empty_input_and_silence():
     from backend.media.mouthclick import detect_mouth_clicks
 

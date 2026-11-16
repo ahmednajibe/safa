@@ -45,13 +45,10 @@ ASSET_FILES = [
     "Safa-0.1.0-macos-arm64.tar.gz",
     "Safa-0.1.0-macos-arm64.dmg",
     "Safa-0.1.0-linux-x64-cpu.tar.gz",
-    "Safa-0.1.0-linux-x64-cuda.tar.gz",
     "safa_audio-0.1.0-py3-none-any.whl",
     "safa_audio-0.1.0.tar.gz",
     "Safa-0.1.0-linux-x64-cpu.deb",
-    "Safa-0.1.0-linux-x64-cuda.deb",
     "rpm/Safa-0.1.0-linux-x64-cpu.rpm",
-    "rpm/Safa-0.1.0-linux-x64-cuda.rpm",
     "Safa-0.1.0-linux-x64.AppImage",
     "flatpak/Safa-0.1.0-linux-x64.flatpak",
     "flatpak/org.safa.Safa.yaml",
@@ -64,6 +61,11 @@ NON_ASSET_FILES = [
     "gpu-portable/stage/leftover.bin",
     "SoundSystem-0.1.0-win64-cpu.zip",          # stale pre-rebrand name
     "Safa-0.1.0-win-x64-setup.exe.tmp",          # partial download
+    # R2 #3: CUDA linux payloads can never publish (2 GiB cap) — not
+    # release assets anymore; cuda installs provision cu124 online.
+    "Safa-0.1.0-linux-x64-cuda.tar.gz",
+    "Safa-0.1.0-linux-x64-cuda.deb",
+    "rpm/Safa-0.1.0-linux-x64-cuda.rpm",
     "notes.txt",
 ]
 
@@ -161,6 +163,14 @@ def test_workflow_files_parse_as_yaml():
     import yaml  # type: ignore  (test dep only — PyYAML is a dev dep)
     for doc in (REL, CI):
         yaml.safe_load(doc)
+
+def test_release_builds_no_linux_cuda_assets():
+    """R2 #3: CUDA linux payloads (~4.9 GB) can never publish — release.yml
+    stops building them; install.sh provisions cu124 online instead."""
+    assert "package-unix.sh --variant cuda" not in REL
+    assert "deb --variant cuda" not in REL
+    assert "rpm --variant cuda" not in REL
+
 
 def test_publish_drops_oversize_assets_before_sums_and_upload():
     """One asset >= 2 GiB fails the whole GitHub upload: the publish job

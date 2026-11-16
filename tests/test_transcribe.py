@@ -46,6 +46,130 @@ pytestmark = [
 ]
 
 
+# ---- R2 #8: pinned snapshot resolution (fresh-install offline fix) ----------------
+
+
+def _fake_hub(monkeypatch, tmp_path, model_key="whisper_small"):
+    """A hub cache with ``snapshots/<rev>`` and NO ``refs/main`` — exactly
+    what a fresh pinned ``snapshot_download`` produces."""
+    from backend.core import models_manifest
+
+    spec = models_manifest.MODELS[model_key]
+    repo = spec.source.split(":", 1)[1].split()[0]
+    cache = tmp_path / "models"
+    snap = (
+        cache
+        / spec.cache_subdir
+        / f"models--{repo.replace('/', '--')}"
+        / "snapshots"
+        / spec.revision
+    )
+    snap.mkdir(parents=True)
+    (snap / "model.bin").write_bytes(b"weights")
+    (snap / "config.json").write_text("{}")
+    monkeypatch.setattr(models_manifest, "MODELS_DIR", cache)
+    return snap
+
+
+def test_pinned_snapshot_dir_resolves_offline(monkeypatch, tmp_path):
+    """The pinned snapshot dir resolves with no refs/main and
+    HF_HUB_OFFLINE=1 — the fresh-install case."""
+    from backend.core import models_manifest
+
+    snap = _fake_hub(monkeypatch, tmp_path)
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    assert models_manifest.pinned_snapshot_dir("whisper_small") == snap
+
+
+def test_pinned_snapshot_dir_none_without_snapshot(monkeypatch, tmp_path):
+    from backend.core import models_manifest
+
+    monkeypatch.setattr(models_manifest, "MODELS_DIR", tmp_path)
+    assert models_manifest.pinned_snapshot_dir("whisper_small") is None
+    # non-HF models never resolve a snapshot dir
+    assert models_manifest.pinned_snapshot_dir("htdemucs") is None
+    assert models_manifest.pinned_snapshot_dir("silero_vad") is None
+
+
+def _fake_faster_whisper(monkeypatch, seen):
+    import sys
+    import types
+
+    class _FakeModel:
+        def __init__(self, ref, **kw):
+            seen["ref"] = ref
+            seen["kw"] = kw
+
+        def transcribe(self, wav, **kw):
+            class _Info:
+                language = "en"
+                language_probability = 0.9
+
+            return [], _Info()
+
+    fake = types.ModuleType("faster_whisper")
+    fake.WhisperModel = _FakeModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake)
+
+
+def _child_args():
+    import argparse
+
+    return argparse.Namespace(
+        wav="x.wav",
+        model_id="small",
+        model_manifest="whisper_small",
+        device="cpu",
+        language=None,
+        duration=1.0,
+    )
+
+
+def test_child_loads_pinned_snapshot_path(monkeypatch, tmp_path, capsys):
+    """The bug: ``WhisperModel("small", download_root=...)`` resolves
+    ``refs/main``, which a pinned download never writes — offline that
+    fails. The child must pass the snapshot dir directly instead."""
+    from backend.media import transcribe_child
+
+    snap = _fake_hub(monkeypatch, tmp_path)
+    seen: dict = {}
+    _fake_faster_whisper(monkeypatch, seen)
+    transcribe_child._run(_child_args())
+    assert seen["ref"] == str(snap)
+    capsys.readouterr()
+
+
+def test_child_falls_back_to_model_id_without_snapshot(
+    monkeypatch, tmp_path, capsys
+):
+    """No pinned snapshot on disk → legacy name resolution (unchanged)."""
+    from backend.core import models_manifest
+    from backend.media import transcribe_child
+
+    monkeypatch.setattr(models_manifest, "MODELS_DIR", tmp_path)
+    seen: dict = {}
+    _fake_faster_whisper(monkeypatch, seen)
+    transcribe_child._run(_child_args())
+    assert seen["ref"] == "small"
+    capsys.readouterr()
+
+
+def test_pinned_download_writes_refs_main(tmp_path):
+    """Hub-layout compat: after a pinned download ``refs/main`` names the
+    revision, so name-based lookups work online and offline."""
+    from backend.core.model_download import _write_main_ref
+
+    cache = tmp_path / "whisper"
+    _write_main_ref(cache, "Systran/faster-whisper-small", "abc123")
+    ref = (
+        cache
+        / "models--Systran--faster-whisper-small"
+        / "refs"
+        / "main"
+    )
+    assert ref.read_text().strip() == "abc123"
+
+
 # ---- compute type ---------------------------------------------------------------
 
 

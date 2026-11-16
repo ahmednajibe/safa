@@ -15,7 +15,7 @@ import {
   type Region,
 } from "../lib/region";
 import {
-  isIdentity,
+  needsTranslation,
   nextKeptSrc,
   outToSrc,
   srcToOut,
@@ -95,7 +95,7 @@ export const AudioComparePlayer = forwardRef<
   const [pos, setPos] = useState(0);
   const [dur, setDur] = useState(0);
 
-  const mapped = timeline !== null && !isIdentity(timeline);
+  const mapped = needsTranslation(timeline, srcOffset);
   const hasB = processedUrl !== null;
 
   // source-domain (absolute s) → output-domain of the compare job.

@@ -29,8 +29,10 @@ gpu_portable_assemble = "assemble-gpu.bat"
 gpu_portable_7z_exe = "7z.exe"
 gpu_portable_7z_dll = "7z.dll"
 macos_tarball       = "Safa-{ver}-macos-arm64.tar.gz"
+# No linux-x64-cuda assets: the ~4.9 GB CUDA payload exceeds the 2 GiB
+# release cap — install.sh --variant cuda installs the cpu tarball then
+# provisions cu124 online via the hashed requirements inside it.
 linux_cpu_tarball   = "Safa-{ver}-linux-x64-cpu.tar.gz"
-linux_cuda_tarball  = "Safa-{ver}-linux-x64-cuda.tar.gz"
 models_core         = "Safa-models-core-{ver}.zip"
 models_all          = "Safa-models-all-{ver}.zip"
 source_zip          = "Safa-{ver}-source.zip"
@@ -40,15 +42,14 @@ install_sh          = "install.sh"
 
 # M10d wave 2 — ecosystem packages. The wheel is also published on PyPI
 # (after approval) but still ships on the release page for offline use.
-# The CUDA AppImage is omitted on purpose (~4.9 GB > 2 GiB limit);
-# CUDA users take the .deb/.rpm instead. The Flatpak is experimental —
+# The CUDA AppImage and the cuda .deb/.rpm are omitted on purpose
+# (~4.9 GB > 2 GiB limit); CUDA users provision cu124 online via
+# install.sh --variant cuda. The Flatpak is experimental —
 # built as a bundle only when its CI job succeeds (allowed-to-fail).
 pypi_wheel          = "safa_audio-{ver}-py3-none-any.whl"
 pypi_sdist          = "safa_audio-{ver}.tar.gz"
 linux_cpu_deb       = "Safa-{ver}-linux-x64-cpu.deb"
-linux_cuda_deb      = "Safa-{ver}-linux-x64-cuda.deb"
 linux_cpu_rpm       = "Safa-{ver}-linux-x64-cpu.rpm"
-linux_cuda_rpm      = "Safa-{ver}-linux-x64-cuda.rpm"
 linux_appimage      = "Safa-{ver}-linux-x64.AppImage"
 macos_dmg           = "Safa-{ver}-macos-arm64.dmg"
 flatpak_bundle      = "Safa-{ver}-linux-x64.flatpak"

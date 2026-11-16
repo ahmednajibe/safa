@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { saveOne } from "../actions";
+import { adoptJob, saveOne } from "../actions";
 import { deleteJob, setJobKeep } from "../api/client";
 import type { Job } from "../api/types";
 import { useT } from "../i18n";
@@ -58,7 +58,7 @@ export function HistoryDrawer({
               type="button"
               className={`drawer-row${job.activeId === j.id ? " active" : ""}`}
               onClick={() => {
-                store.dispatchJob({ type: "set-active", job: j });
+                void adoptJob(store, j);
                 onClose();
               }}
             >

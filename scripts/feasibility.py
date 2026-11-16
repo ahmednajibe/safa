@@ -30,7 +30,11 @@ import torch  # noqa: E402
 
 from backend.core.ffmpeg import ffmpeg_version, has_encoder  # noqa: E402
 from backend.core.gpu import VramSampler, gpu_info, setup_cuda_dlls  # noqa: E402
-from backend.core.models_manifest import configure_model_env, model_dir  # noqa: E402
+from backend.core.models_manifest import (  # noqa: E402
+    configure_model_env,
+    model_dir,
+    pinned_snapshot_dir,
+)
 from backend.core.paths import DATA_DIR, FIXTURES_DIR  # noqa: E402
 
 SR = 48000
@@ -310,8 +314,9 @@ def check_ffmpeg_deesser_loudnorm() -> str:
 def _whisper(device: str, compute: str) -> str:
     from faster_whisper import WhisperModel
 
+    snap = pinned_snapshot_dir("whisper_small")
     model = WhisperModel(
-        "small",
+        str(snap) if snap is not None else "small",
         device=device,
         compute_type=compute,
         download_root=str(model_dir("whisper_small")),

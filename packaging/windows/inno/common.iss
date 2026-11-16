@@ -117,10 +117,35 @@ begin
     DataDirPage.Values[0] := ExpandConstant('{localappdata}\Safa');
 end;
 
+{ True when the folder does not exist or contains nothing at all.
+  FindFirst matches the '.' / '..' entries — those don't count. }
+function DirIsEmpty(const D: string): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := True;
+  if FindFirst(AddBackslash(D) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+          Result := False;
+      until (not Result) or (not FindNext(FindRec));
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 procedure WriteInstalledJson(const ModelsDir: string);
 var
   J: string;
+  FreshDir: Boolean;
 begin
+  { Decide BEFORE anything lands in the folder: a directory that already
+    had user files is never marked as Safa-owned (R2: the uninstaller
+    keys the data-deletion offer off the marker). }
+  FreshDir := (not DirExists(SafaDataDir())) or DirIsEmpty(SafaDataDir());
   ForceDirectories(SafaDataDir());
   J := '{"data_dir":"' + JsonEscape(SafaDataDir()) + '"';
   if ModelsDir <> '' then
@@ -133,9 +158,15 @@ begin
     Documents folder or drive root is never offered for deletion.
     The app re-creates the marker on startup (backend/core/paths.py)
     so an upgrade does not lose it. }
-  if not SaveStringToFile(SafaDataDir() + '\.safa-data',
-                          'safa {#AppVer}' + #13#10, False) then
-    Log('warning: could not write .safa-data marker');
+  if FreshDir then
+  begin
+    if not SaveStringToFile(SafaDataDir() + '\.safa-data',
+                            'safa {#AppVer}' + #13#10, False) then
+      Log('warning: could not write .safa-data marker');
+  end
+  else
+    Log('data folder was not empty before install — not marking ' +
+        'as Safa-owned: ' + SafaDataDir());
 end;
 
 { Reads data_dir back from installed.json — used by the uninstaller so the
@@ -181,11 +212,33 @@ begin
   DelTree(Sub, True, True, True);
 end;
 
+{ Delete ONLY entries the app itself creates under the data folder —
+  enumerated from backend/core/paths.py + settings + storage:
+  app.db* (the SQLite db and its WAL/journal sidecars), jobs/, media/,
+  logs/, models/, tmp/, and the marker. Anything else the folder holds
+  is the user's and survives (R2 #9). }
+procedure DeleteOwnedDataEntries(const D: string);
+begin
+  DeleteFile(D + '\app.db');
+  DeleteFile(D + '\app.db-wal');
+  DeleteFile(D + '\app.db-shm');
+  DeleteFile(D + '\app.db-journal');
+  DeleteFile(D + '\app.db.safa-part');
+  DelTree(D + '\jobs', True, True, True);
+  DelTree(D + '\media', True, True, True);
+  DelTree(D + '\logs', True, True, True);
+  DelTree(D + '\models', True, True, True);
+  DelTree(D + '\tmp', True, True, True);
+  DeleteFile(D + '\.safa-data');
+end;
+
 // Uninstall: app files are removed by Inno automatically. The data
 // folder is NOT under the app dir and survives. data_dir is read into a
 // global at usUninstall — at usPostUninstall installed.json is already
 // gone. Deletion is offered ONLY when <data>\.safa-data exists (default:
 // keep); a dir without the marker is shown and kept — never DelTree'd.
+// On "Yes" only Safa-owned entries are deleted; the folder itself is
+// removed only when nothing foreign remains inside.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   D, Marker: string;
@@ -203,7 +256,10 @@ begin
         if SuppressibleMsgBox(
              CustomMessage('DeleteDataPrompt') + #13#10#13#10 + D,
              mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
-          DelTree(D, True, True, True);
+        begin
+          DeleteOwnedDataEntries(D);
+          RemoveDir(D);   { Inno removes only an empty directory }
+        end;
       end
       else
         SuppressibleMsgBox(

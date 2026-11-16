@@ -80,6 +80,15 @@ def validate_output_dir(raw: str, project_root: Path | None = None) -> Path:
     root_r = root.resolve()
     if resolved == root_r or root_r in resolved.parents:
         raise OutputDirInvalid(f"inside project: {raw!r}")
+    # R2 #2: installed-mode DATA_DIR/MODELS_DIR live outside the repo —
+    # exports auto-saved into them would nest next to app.db, the job
+    # store and the model cache. Read them lazily so env/mode changes and
+    # test patches apply.
+    from backend.core import paths
+    for guarded in (paths.DATA_DIR, paths.MODELS_DIR):
+        g = Path(guarded).resolve()
+        if resolved == g or g in resolved.parents:
+            raise OutputDirInvalid(f"inside app data dir: {raw!r}")
     if not resolved.is_dir():
         raise OutputDirInvalid(f"not a directory: {raw!r}")
     # Single create+delete probe for writability. NOT tempfile.mkstemp —
@@ -139,33 +148,39 @@ def reveal_in_explorer(path: Path, sys_platform: str | None = None) -> None:
         subprocess.Popen(["xdg-open", str(target)])
 
 
-def _non_colliding(dst_dir: Path, name: str) -> Path:
-    """First free target name: ``name``, then ``stem (2).ext``, ``(3)``…"""
-    cand = dst_dir / name
-    if not cand.exists():
-        return cand
+def _claim_target(dst_dir: Path, name: str) -> Path:
+    """Reserve ``name`` (or ``stem (2).ext``, ``(3)``…) by *creating* it
+    with ``O_CREAT|O_EXCL`` — the check and the reservation are one
+    atomic syscall, so two concurrent savers can never pick the same
+    target (R2 #5: exists()-then-write raced and overwrote/failed).
+    Returns the path of the empty placeholder the caller must fill."""
     stem, dot, ext = name.rpartition(".")
     if not dot:
         stem, ext = name, ""
     else:
         ext = dot + ext
-    for i in range(2, 10_000):
-        cand = dst_dir / f"{stem} ({i}){ext}"
-        if not cand.exists():
-            return cand
+    for i in range(1, 10_000):
+        cand = dst_dir / (name if i == 1 else f"{stem} ({i}){ext}")
+        try:
+            fd = os.open(cand, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        return cand
     raise OSError(f"no free name for {name!r}")
 
 
 def _auto_copy(src: Path, dst_dir: Path) -> Path:
     """Copy ``src`` into ``dst_dir`` atomically under a non-colliding name
-    (``.<name>.<uuid>.tmp`` + ``os.replace``). Raises OSError on any
-    failure — the caller turns it into ``auto_save_failed``."""
+    (``O_EXCL`` placeholder claim + ``.<name>.<uuid>.tmp`` +
+    ``os.replace``). Raises OSError on any failure — the caller turns it
+    into ``auto_save_failed``."""
     if not dst_dir.is_dir():
         raise OSError(f"output folder missing: {dst_dir}")
     size = src.stat().st_size
     if free_space_bytes(dst_dir) < size:
         raise OSError("not enough free space")
-    target = _non_colliding(dst_dir, src.name)
+    target = _claim_target(dst_dir, src.name)
     tmp = dst_dir / f".{src.name}.{uuid.uuid4().hex}.tmp"
     try:
         with src.open("rb") as r, tmp.open("wb") as w:
@@ -173,6 +188,7 @@ def _auto_copy(src: Path, dst_dir: Path) -> Path:
         os.replace(tmp, target)
     except BaseException:
         tmp.unlink(missing_ok=True)
+        target.unlink(missing_ok=True)  # release the placeholder claim
         raise
     return target
 

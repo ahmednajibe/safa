@@ -266,31 +266,40 @@ entry. `--variant cpu` (default) or `--variant cuda`. The tarball's
 SHA-256 is verified against the release `SHA256SUMS.txt` before
 extracting.
 
+`--variant cuda` installs the CPU payload, then downloads the CUDA 12.4
+runtime (~5 GB, hash-verified from `requirements-cu124.txt` inside the
+tarball) with the bundled `tools/uv` — the same mechanism as
+`safa setup --device cuda`. There is no `-cuda.tar.gz` on the release
+page: the ~4.9 GB payload would exceed GitHub's 2 GiB asset limit.
+
 ### .deb (Debian / Ubuntu / Mint)
 <!-- method:linux-deb-cpu -->
 <!-- method:linux-deb-cuda -->
 
 ```sh
-sudo apt install ./Safa-<ver>-linux-x64-cpu.deb    # or -cuda.deb
+sudo apt install ./Safa-<ver>-linux-x64-cpu.deb
 ```
 
 Installs the full runtime to `/opt/safa` with a `safa` command and a
-menu entry. **~0.8 GB** (CPU); the CUDA package wraps the ~4.9 GB GPU
-payload — over GitHub's 2 GiB file limit, so if it is missing from the
-release use `install.sh --variant cuda` instead. ffmpeg is bundled;
-data lives in `~/.local/share/safa-data` and survives `apt purge`.
-No internet needed except first-run models (~600 MB).
+menu entry. **~0.8 GB** (CPU). No cuda .deb ships — the ~4.9 GB GPU
+payload is over GitHub's 2 GiB file limit; for NVIDIA run
+`install.sh --variant cuda` (online cu124 provisioning) or
+`safa setup --device cuda` inside an installed CPU package instead.
+ffmpeg is bundled; data lives in `~/.local/share/safa-data` and
+survives `apt purge`. No internet needed except first-run models
+(~600 MB).
 
 ### .rpm (Fedora)
 <!-- method:linux-rpm-cpu -->
 <!-- method:linux-rpm-cuda -->
 
 ```sh
-sudo dnf install ./Safa-<ver>-linux-x64-cpu.rpm    # or -cuda.rpm
+sudo dnf install ./Safa-<ver>-linux-x64-cpu.rpm
 ```
 
-Same layout and rules as the .deb. `safa` and `safa-cuda` conflict —
-install one variant at a time.
+Same layout and rules as the .deb — CPU only; CUDA uses the same
+online provisioning path (`install.sh --variant cuda` or
+`safa setup --device cuda`).
 
 ### AppImage (CPU)
 <!-- method:linux-appimage -->
@@ -304,7 +313,8 @@ chmod +x Safa-<ver>-linux-x64.AppImage
 **~0.8 GB**, nothing installed — data goes to
 `${XDG_DATA_HOME:-~/.local/share}/safa-data` (`APPIMAGE_DATA_DIR`
 overrides). CPU only: a CUDA AppImage would be ~4.9 GB, over the
-2 GiB release-asset limit — use the .deb/.rpm.
+2 GiB release-asset limit — use `install.sh --variant cuda` or
+`safa setup --device cuda` instead.
 
 ### Flatpak (experimental)
 <!-- method:linux-flatpak -->
@@ -327,17 +337,20 @@ published next to it.
 <!-- method:linux-aur -->
 
 ```sh
-yay -S safa        # CPU
-# or build packaging/aur/PKGBUILD manually; swap the source URL for the
-# cuda tarball for an NVIDIA build.
+yay -S safa        # CPU — for NVIDIA, run `safa setup --device cuda`
+                   # inside the installed package (no cuda tarball ships)
 ```
 
 ### Portable tarballs
 <!-- method:linux-portable-cpu -->
 <!-- method:linux-portable-cuda -->
 
-`Safa-<ver>-linux-x64-cpu.tar.gz` / `-cuda.tar.gz` — extract, run
-`./start.sh` inside. Data stays in the folder.
+`Safa-<ver>-linux-x64-cpu.tar.gz` — extract, run `./start.sh` inside.
+Data stays in the folder. No `-cuda.tar.gz` ships (2 GiB cap): upgrade
+a CPU tree with `uv pip install --python python/bin/python3 --system
+-r requirements-cu124.txt --require-hashes --extra-index-url
+https://download.pytorch.org/whl/cu124 --index-strategy
+unsafe-best-match` using the bundled `tools/uv`.
 
 ### From source (Linux)
 <!-- method:linux-source -->

@@ -12,7 +12,12 @@
 #          writes a .desktop entry.
 #
 # The downloaded tarball is the portable package (bundled Python +
-# wheels + ffmpeg) — the install itself needs no further downloads.
+# wheels + ffmpeg) — the install itself needs no further downloads,
+# EXCEPT --variant cuda: no cuda tarball is published (the ~4.9 GB
+# payload exceeds the 2 GiB release-asset cap), so the CPU payload is
+# installed and the bundled env is then provisioned to cu124 online
+# via the tarball's tools/uv + hash-locked requirements-cu124.txt —
+# the same mechanism as `safa setup --device cuda`.
 # The tarball is ALWAYS verified against SHA256SUMS.txt before extract
 # (sha256sum, or shasum -a 256 on macOS); missing sums, a missing entry
 # or a mismatch aborts with a bilingual error.
@@ -70,8 +75,11 @@ case "$OS" in
         [ "$ARCH" = "x86_64" ] || { echo "Safa: x86_64 required (got $ARCH)" >&2; exit 2; }
         DIR="${DIR:-$HOME/.local/share/safa}"
         DATA="${DATA:-$HOME/.local/share/safa-data}"
+        # No cuda tarball is published (the ~4.9 GB payload exceeds the
+        # 2 GiB asset cap): cuda installs the CPU payload then
+        # provisions cu124 online from the hashed lock — the same path
+        # `safa setup --device cuda` takes.
         ASSET_KEY="linux-x64-cpu"
-        [ "$VARIANT" = "cuda" ] && ASSET_KEY="linux-x64-cuda"
         ;;
     *) echo "Safa: unsupported OS $OS" >&2; exit 2 ;;
 esac
@@ -114,6 +122,8 @@ echo "tarball=${FROM_DIR:-$BASE_URL}/$TARBALL"
 if [ "$DRY" = "1" ]; then
     echo "[dry-run] would: download $TARBALL, extract to $DIR,"
     echo "  write $DIR/installed.json -> $DATA, create launcher + desktop entry"
+    [ "$VARIANT" = "cuda" ] && echo \
+        "  + provision cu124 into $DIR/python via tools/uv + requirements-cu124.txt"
     exit 0
 fi
 
@@ -167,6 +177,10 @@ mkdir -p "$DIR"
 tar -xzf "$TMP/$TARBALL" -C "$TMP"
 inner="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d | head -1)"
 cp -R "$inner/." "$DIR/"
+# The tarball is a PORTABLE package — its portable.txt would override
+# installed.json and pin data inside the install dir (paths.py). This
+# is an installed layout: the marker goes, installed.json wins.
+rm -f "$DIR/portable.txt"
 chmod -R u+rwX "$DIR"
 # Executables the OS must see as executable (git/zips can drop the bit).
 chmod +x "$DIR"/tools/ffmpeg/bin/* 2>/dev/null || true
@@ -204,6 +218,35 @@ mkdir -p "$DATA"
 printf '{"data_dir":"%s","variant":"%s"}\n' \
     "$(printf '%s' "$DATA" | sed 's/\\/\\\\/g;s/"/\\"/g')" "$VARIANT" \
     > "$DIR/installed.json"
+
+if [ "$VARIANT" = "cuda" ]; then
+    echo "== CUDA 12.4 runtime =="
+    # Online provisioning — the cuda tarball never ships. The payload
+    # carries tools/uv + the hash-locked requirements; uv installs the
+    # cu124 wheels straight into the bundled python, like
+    # `safa setup --device cuda` does.
+    PYBIN="$DIR/python/bin/python3"
+    UVBIN="$DIR/tools/uv/uv"
+    [ -x "$UVBIN" ] || UVBIN="$(command -v uv || true)"
+    [ -x "$PYBIN" ] || fail_bilingual \
+        "bundled python missing at $PYBIN" \
+        "بايثون المرفق غير موجود في $PYBIN"
+    [ -n "$UVBIN" ] || fail_bilingual \
+        "uv is required for the CUDA runtime (bundled copy missing, none on PATH)" \
+        "أداة uv مطلوبة لتثبيت نمط البطاقة"
+    [ -f "$DIR/requirements-cu124.txt" ] || fail_bilingual \
+        "requirements-cu124.txt missing in $DIR" \
+        "ملف متطلبات CUDA مفقود في $DIR"
+    mkdir -p "$DATA/tmp/uv-cache"
+    UV_CACHE_DIR="$DATA/tmp/uv-cache" TMPDIR="$DATA/tmp" \
+        "$UVBIN" pip install --python "$PYBIN" --system \
+            -r "$DIR/requirements-cu124.txt" --require-hashes \
+            --extra-index-url "https://download.pytorch.org/whl/cu124" \
+            --index-strategy unsafe-best-match \
+        || fail_bilingual \
+            "CUDA runtime download failed — check the connection and re-run install.sh" \
+            "فشل تنزيل بيئة البطاقة — تحقق من الاتصال وأعد المحاولة"
+fi
 
 echo "== done =="
 echo "Safa installed to $DIR"

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  needsTranslation,
   nextKeptSrc,
   outToSrc,
   removedSpans,
@@ -74,5 +75,36 @@ describe("nextKeptSrc", () => {
 describe("removedSpans", () => {
   it("lists the cut gaps", () => {
     expect(removedSpans(TL)).toEqual([[3, 7]]);
+  });
+});
+
+describe("needsTranslation", () => {
+  // A preview job's timeline is region-local: identity over the slice
+  // length. srcOffset (its start_s) must still count as a translation —
+  // otherwise A/B switching and the video mirror run on source time
+  // against a slice that starts at 0 (R2 #13b).
+  const PREVIEW_IDENTITY: TimelineData = {
+    source_duration: 20,
+    segments: [
+      { src_start: 0, src_end: 20, out_start: 0, out_end: 20, speed: 1 },
+    ],
+    removed: [],
+  };
+
+  it("is true for a preview-region timeline even with no cuts", () => {
+    expect(needsTranslation(PREVIEW_IDENTITY, 30)).toBe(true);
+  });
+
+  it("is false for a full-file identity timeline", () => {
+    expect(needsTranslation(PREVIEW_IDENTITY, 0)).toBe(false);
+  });
+
+  it("is true for any cut map regardless of offset", () => {
+    expect(needsTranslation(TL, 0)).toBe(true);
+    expect(needsTranslation(TL, 30)).toBe(true);
+  });
+
+  it("is false without a timeline", () => {
+    expect(needsTranslation(null, 30)).toBe(false);
   });
 });

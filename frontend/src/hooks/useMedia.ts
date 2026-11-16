@@ -1,11 +1,12 @@
 import { useEffect } from "react";
 import { getMedia } from "../api/client";
+import { isMediaReady } from "../lib/media";
 import { useStore } from "../state/store";
 
 const POLL_MS = 600;
 
 /** While media.status === "preparing", poll GET /api/media/{id} until
- *  ready.peaks && lufs are in (or ready.error → media-error). */
+ *  ready.peaks is in (or ready.error → media-error). */
 export function useMedia(): void {
   const { media, dispatchMedia } = useStore();
   const mediaId = media.mediaId;
@@ -28,7 +29,7 @@ export function useMedia(): void {
           });
           return;
         }
-        if (m.ready?.peaks && m.lufs != null) {
+        if (isMediaReady(m)) {
           dispatchMedia({ type: "media-ready", media: m });
           return;
         }

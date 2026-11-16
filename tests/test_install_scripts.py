@@ -242,7 +242,8 @@ def _sha256(data: bytes) -> str:
 
 
 def _fake_release(dir_: Path, ver: str = "1.2.3",
-                  key: str = "linux-x64-cpu") -> Path:
+                  key: str = "linux-x64-cpu",
+                  portable: bool = False) -> Path:
     """Fake release dir: tarball with one inner folder + a marker file."""
     import tarfile
     name = f"Safa-{ver}-{key}"
@@ -251,6 +252,8 @@ def _fake_release(dir_: Path, ver: str = "1.2.3",
     (inner / "backend").mkdir()
     (inner / "backend" / "main.py").write_text("# safa\n")
     (inner / "VERSION.txt").write_text(ver + "\n")
+    if portable:
+        (inner / "portable.txt").write_text("portable\n")
     tb = dir_ / f"{name}.tar.gz"
     with tarfile.open(tb, "w:gz") as t:
         t.add(inner, arcname=name)
@@ -338,6 +341,75 @@ def test_install_sh_from_dir_missing_entry_refuses(tmp_path):
         tmp_path, "--from-dir", str(rel), "--version", "1.2.3",
         "--dir", str(tmp_path / "app"), "--data-dir", str(tmp_path / "d"))
     assert r.returncode == 1
+
+
+@pytest.mark.skipif(
+    not (shutil.which("sha256sum") or shutil.which("shasum")),
+    reason="no sha256 tool")
+def test_install_sh_strips_portable_marker(tmp_path):
+    """R2 #10: the tarball is a PORTABLE package — a leftover
+    ``portable.txt`` overrides installed.json (paths.py: portable beats
+    installed), so the chosen ``--data-dir`` is silently ignored and
+    data lands inside the install dir. The installer must strip it."""
+    rel = tmp_path / "rel"
+    rel.mkdir()
+    tb = _fake_release(rel, portable=True)
+    _write_sums(rel, tb)
+    app, data = tmp_path / "app", tmp_path / "chosen data"
+    r = _run_install_sh(
+        tmp_path, "--from-dir", str(rel), "--version", "1.2.3",
+        "--dir", str(app), "--data-dir", str(data))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not (app / "portable.txt").exists()
+    assert json.loads((app / "installed.json").read_text())[
+        "data_dir"] == str(data)
+
+
+# ---- R2 #12: `uv pip download` does not exist -------------------------------------
+
+
+def test_package_unix_never_uses_uv_pip_download():
+    """Every macOS/Linux tarball build ran ``uv pip download`` — a
+    subcommand that does not exist — so all of them failed. The script
+    mirrors package.ps1: standalone 3.11 + ``uv pip install --python``
+    with the hashed lock."""
+    bad = []
+    for p in (ROOT / "scripts" / "package-unix.sh",
+              ROOT / "scripts" / "package-linux.sh",
+              ROOT / "scripts" / "package-dmg.sh",
+              ROOT / "install.sh"):
+        if "uv pip download" in p.read_text(encoding="utf-8",
+                                            errors="replace"):
+            bad.append(p.name)
+    assert not bad, bad
+    text = (ROOT / "scripts" / "package-unix.sh").read_text(
+        encoding="utf-8")
+    assert "uv python install" in text
+    assert "uv pip install" in text
+    assert "--require-hashes" in text
+
+
+# ---- R2 #3: the cuda tarball can never publish (2 GiB cap) ------------------------
+
+
+def test_install_sh_cuda_variant_provisions_cu124_online():
+    """``--variant cuda`` must install the CPU payload then upgrade the
+    bundled env to cu124 from the hashed lock — the linux-x64-cuda
+    asset does not exist on the release page."""
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "linux-x64-cuda" not in text
+    assert "requirements-cu124.txt" in text
+    assert "download.pytorch.org/whl/cu124" in text
+    assert "--require-hashes" in text
+
+
+def test_package_unix_ships_uv_and_cuda_lock():
+    """install.sh --variant cuda upgrades the bundled env online — the
+    tarball must carry the uv binary and the hashed cu124 lock."""
+    text = (ROOT / "scripts" / "package-unix.sh").read_text(
+        encoding="utf-8")
+    assert "requirements-cu124.txt" in text
+    assert "tools/uv" in text
 
 
 def test_package_unix_sh_lint():

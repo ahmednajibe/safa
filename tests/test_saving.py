@@ -124,6 +124,24 @@ def test_validate_rejects_inside_project_root(tmp_path):
             output_dir.validate_output_dir(str(p), project_root=root)
 
 
+def test_validate_rejects_data_and_models_dir(tmp_path, monkeypatch):
+    """R2 #2: installed-mode DATA_DIR/MODELS_DIR live outside the repo —
+    auto-saving exports into them would nest outputs next to app.db and
+    the model cache."""
+    from backend.core import paths
+
+    root = _new_dir(tmp_path, "repo")
+    data = _new_dir(tmp_path, "safa-data")
+    models = _new_dir(_new_dir(tmp_path, "elsewhere"), "models")
+    monkeypatch.setattr(paths, "DATA_DIR", data)
+    monkeypatch.setattr(paths, "MODELS_DIR", models)
+    (data / "sub").mkdir()
+    (models / "whisper").mkdir()
+    for p in (data, data / "sub", models, models / "whisper"):
+        with pytest.raises(OutputDirInvalid):
+            output_dir.validate_output_dir(str(p), project_root=root)
+
+
 def test_validate_rejects_symlink_junction_escape(tmp_path):
     """A junction/symlink resolves elsewhere — resolve() changes the
     path → rejected (SPEC §12 'symlink/junction escapes')."""
@@ -421,6 +439,37 @@ def test_auto_save_never_overwrites_existing(tmp_path):
     new_copy = target / "song_clean (2).mp3"
     assert new_copy.read_bytes() == b"AUDIODATA"
     assert store.files(job.id)[0]["saved_path"] == str(new_copy)
+
+
+def test_auto_copy_concurrent_same_name(tmp_path):
+    """R2 #5: two workers auto-saving the same file name at once must not
+    overwrite each other — the name is claimed with O_EXCL, not probed."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    n = 8
+    dst = _new_dir(tmp_path)
+    srcs = []
+    for i in range(n):
+        s = tmp_path / f"src{i}" / "mix.wav"
+        s.parent.mkdir()
+        s.write_bytes(f"chunk-{i}".encode() * 131072)  # ~1 MB per copy
+        srcs.append(s)
+    bar = threading.Barrier(n)
+
+    def go(s):
+        bar.wait()
+        return output_dir._auto_copy(s, dst)
+
+    with ThreadPoolExecutor(max_workers=n) as ex:
+        targets = list(ex.map(go, srcs))
+
+    names = [t.name for t in targets]
+    assert len(set(names)) == n  # every copier got a distinct name
+    for s, t in zip(srcs, targets):
+        assert t.read_bytes() == s.read_bytes()
+    assert sorted(p.name for p in dst.iterdir()) == sorted(names)
+    assert "mix.wav" in names and "mix (8).wav" in names
 
 
 def test_auto_save_missing_folder_warns_not_fails(tmp_path):

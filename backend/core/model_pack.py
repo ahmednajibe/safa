@@ -59,6 +59,68 @@ def _hf_subdir(source: str) -> str | None:
     return "models--" + repo.replace("/", "--")
 
 
+# deepfilternet3's spec.sha256 pins the *release zip*, not the extracted
+# files — pin the torch.load'd checkpoint + config of the pinned release
+# (v0.5.6) directly, measured from the genuine extracted tree.
+_EXTRA_PINS = {
+    "deepfilternet/DeepFilterNet3/checkpoints/model_120.ckpt.best":
+        "23b92884f63ccf54bb026014604625ab231657b6480df65db4095c4c171e6003",
+    "deepfilternet/DeepFilterNet3/config.ini":
+        "415eb925d44990d938fb739f514aa3662c1ec0ea836cff044fa1291b82cb4290",
+}
+
+
+def pinned_file_sums() -> dict[str, str]:
+    """Pack-relpath → expected sha256 for every weights file the
+    manifest pins. ``SHA256SUMS.txt`` inside a pack is self-authored —
+    a tampered pack rewrites it to match — so these are the trust
+    anchor for import (R2 #1)."""
+    from backend.core.models_manifest import MODELS
+
+    pins: dict[str, str] = {}
+    for spec in MODELS.values():
+        if spec.sha256 is None:
+            continue
+        if spec.filename:
+            pins[f"{spec.cache_subdir}/{spec.filename}"] = spec.sha256
+        elif spec.revision:
+            hf = _hf_subdir(spec.source)
+            if hf is not None:
+                # manifest sha = model.bin at the pinned snapshot
+                pins[f"{spec.cache_subdir}/{hf}/snapshots/"
+                     f"{spec.revision}/model.bin"] = spec.sha256
+    pins.update(_EXTRA_PINS)
+    return pins
+
+
+def _verify_external_sums(zip_path: Path, zip_sha: str, out) -> bool:
+    """A release download keeps ``SHA256SUMS.txt`` next to the zip —
+    verify the zip itself against it when present (the pack's internal
+    sums are self-authored). Refuses a listed-but-mismatched zip."""
+    sums_file = zip_path.with_name("SHA256SUMS.txt")
+    if not sums_file.is_file():
+        return True
+    try:
+        lines = sums_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return True
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        if Path(parts[-1].lstrip("*")).name == zip_path.name:
+            if parts[0].lower() == zip_sha:
+                return True
+            out(f"SHA256SUMS.txt mismatch — listed {parts[0].lower()}, "
+                f"zip is {zip_sha} — refusing (tampered download?)")
+            out("ملف SHA256SUMS.txt المجاور لا يطابق بصمة الحزمة — "
+                "مرفوض (تنزيل معدّل؟)")
+            return False
+    out(f"note: SHA256SUMS.txt does not list {zip_path.name} — "
+        "skipping zip-level check")
+    return True
+
+
 def model_files(name: str, models_dir: Path) -> list[Path]:
     """Files belonging to one manifest model — finer than a whole
     ``cache_subdir`` (whisper/ holds both small and turbo)."""
@@ -184,6 +246,10 @@ def import_pack(
     if not zip_path.is_file():
         out(f"pack not found: {zip_path}")
         return 1
+    zip_sha = _sha256_file(zip_path)
+    out(f"pack sha256: {zip_sha}")
+    if not _verify_external_sums(zip_path, zip_sha, out):
+        return 1
     try:
         z = zipfile.ZipFile(zip_path)
     except zipfile.BadZipFile:
@@ -202,6 +268,20 @@ def import_pack(
             sums = _read_sums(z)
         except ValueError as exc:
             out(str(exc))
+            return 1
+        # R2 #1: the pack's sums are self-authored — every manifest-
+        # pinned file it claims must match the manifest hash, checked
+        # before a single byte is written.
+        pins = pinned_file_sums()
+        forged = [r for r, s in sorted(sums.items())
+                  if r in pins and pins[r] != s]
+        if forged:
+            out("integrity check failed — pack file(s) do not match the "
+                "pinned manifest hashes (tampered pack?):")
+            out("فشل فحص السلامة — ملفات الحزمة لا تطابق البصمات "
+                "المثبتة في البيان (حزمة معدّلة؟):")
+            for rel in forged[:10]:
+                out(f"  {rel}")
             return 1
         listed = set(sums)
         members = {i.filename for i in z.infolist() if not i.is_dir()}

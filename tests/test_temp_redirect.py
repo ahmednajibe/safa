@@ -45,11 +45,23 @@ def test_create_app_redirects_temp(tmp_path, monkeypatch):
         assert os.environ[var] == str(tmp_path / "data" / "tmp")
 
 
-def test_no_system_temp_leak(tmp_path):
+def test_no_system_temp_leak(tmp_path, monkeypatch):
     """Full pipeline via a real worker subprocess on an Arabic + space
-    media path leaves zero new files in the system %TEMP%."""
-    sys_temp = Path(tempfile.gettempdir()).resolve()
-    before = {p.name for p in sys_temp.iterdir()}
+    media path leaves zero new files in the system %TEMP%.
+
+    R2 #4 (deterministic): instead of diffing the real %TEMP% — where any
+    unrelated process can drop a file mid-run — the test points
+    TEMP/TMP/TMPDIR at a sentinel dir it owns, then asserts the app and
+    its worker redirect everything to ``<data>/tmp`` and never touch the
+    sentinel. A foreign file written to the real %TEMP% mid-run proves
+    the assertion no longer depends on what other processes do."""
+    real_temp = Path(
+        os.environ.get("TEMP") or tempfile.gettempdir()
+    ).resolve()
+    sentinel = tmp_path / "system-temp-sentinel"
+    sentinel.mkdir()
+    for var in ("TEMP", "TMP", "TMPDIR"):
+        monkeypatch.setenv(var, str(sentinel))
 
     data = tmp_path / "data"
     app = create_app(
@@ -97,6 +109,8 @@ def test_no_system_temp_leak(tmp_path):
     from backend.media.storage import job_dir
 
     job_root = job_dir(job.id, data)
+    foreign = real_temp / f"safa_foreign_{os.getpid()}.tmp"
+    foreign.write_bytes(b"not ours")  # self-test: must not flake the run
     logf = (job_root / "worker.log").open("ab")
     try:
         proc = subprocess.run(
@@ -109,6 +123,7 @@ def test_no_system_temp_leak(tmp_path):
         )
     finally:
         logf.close()
+        foreign.unlink(missing_ok=True)
     assert proc.returncode == 0, (job_root / "worker.log").read_text(
         encoding="utf-8", errors="replace"
     )[-2000:]
@@ -127,6 +142,7 @@ def test_no_system_temp_leak(tmp_path):
     child_tmp = Path(out.stdout.strip()).resolve()
     assert child_tmp == (data / "tmp").resolve(), out.stdout
 
-    after = {p.name for p in sys_temp.iterdir()}
-    leaked = sorted(after - before)
-    assert not leaked, f"new files appeared in system TEMP: {leaked[:8]}"
+    # The sentinel is what the OS called temp for this whole run — the
+    # app + worker must have redirected everything to <data>/tmp.
+    leaked = sorted(p.name for p in sentinel.iterdir())
+    assert not leaked, f"app wrote into system TEMP: {leaked[:8]}"

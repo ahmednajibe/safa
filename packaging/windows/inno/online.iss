@@ -139,7 +139,15 @@ begin
   Result := VariantParam();
   if Result = 'gpu' then Result := 'cu124';
   if Result = 'auto' then
-    if GpuDetected then Result := 'cu124' else Result := 'cpu';
+  begin
+    { No explicit /VARIANT: the wizard's radio choice wins in
+      interactive mode; silent installs fall back to auto-detect. }
+    if not WizardSilent and Assigned(VariantPage) then
+      if VariantPage.Values[0] then Result := 'cu124'
+      else Result := 'cpu'
+    else if GpuDetected then Result := 'cu124'
+    else Result := 'cpu';
+  end;
 end;
 
 function InitializeSetup(): Boolean;
@@ -162,9 +170,15 @@ begin
   begin
     VariantPage.Values[0] := False;
     VariantPage.Values[1] := True;
-  end else begin
+  end else if (VariantParam() = 'gpu') or (VariantParam() = 'cu124') then
+  begin
     VariantPage.Values[0] := True;
     VariantPage.Values[1] := False;
+  end else begin
+    { auto — preselect by detection so a CPU-only machine does not
+      default to a runtime it cannot install. }
+    VariantPage.Values[0] := GpuDetected;
+    VariantPage.Values[1] := not GpuDetected;
   end;
   CreateDataDirPage(VariantPage.ID);
   UvProgressPage := CreateOutputProgressPage(
