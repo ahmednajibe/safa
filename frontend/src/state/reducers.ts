@@ -339,13 +339,23 @@ export function isTerminal(job: Job | null): boolean {
 
 export interface SettingsState {
   outputDir: string | null;
+  /** retention window in days, or "never" (default 7 matches backend) */
+  retentionDays: number | "never";
   loaded: boolean;
 }
 
-export const emptySettings: SettingsState = { outputDir: null, loaded: false };
+export const emptySettings: SettingsState = {
+  outputDir: null,
+  retentionDays: 7,
+  loaded: false,
+};
 
 export type SettingsAction =
-  | { type: "settings"; outputDir: string | null }
+  | {
+      type: "settings";
+      outputDir: string | null;
+      retentionDays?: number | "never";
+    }
   | { type: "clear" };
 
 export function settingsReducer(
@@ -354,7 +364,11 @@ export function settingsReducer(
 ): SettingsState {
   switch (a.type) {
     case "settings":
-      return { outputDir: a.outputDir, loaded: true };
+      return {
+        outputDir: a.outputDir,
+        retentionDays: a.retentionDays ?? s.retentionDays,
+        loaded: true,
+      };
     case "clear":
       return emptySettings;
     default:

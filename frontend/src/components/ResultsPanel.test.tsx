@@ -60,6 +60,7 @@ const JOB: Job = {
   finished_at: null,
   retry_of: null,
   queue_position: null,
+  keep: false,
   files: [],
 };
 

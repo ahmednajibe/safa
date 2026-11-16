@@ -145,9 +145,14 @@ def main(argv: list[str]) -> None:
     ap.add_argument("--duration", type=float, required=True)
     args = ap.parse_args(argv)
 
-    from backend.core.models_manifest import configure_model_env
+    from backend.core.models_manifest import (
+        configure_model_env,
+        install_socket_guard,
+    )
 
     configure_model_env()
+    if os.environ.get("SOUND_SYSTEM_SOCKET_GUARD") == "1":
+        install_socket_guard()
     if args.device == "cuda":
         try:
             from backend.core.gpu import setup_cuda_dlls

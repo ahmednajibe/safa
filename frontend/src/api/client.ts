@@ -5,6 +5,8 @@ import type {
   Job,
   JobsResponse,
   MediaInfo,
+  ModelDownloadState,
+  ModelInfo,
   OperationsResponse,
   ResolveResponse,
   TimelineData,
@@ -165,6 +167,10 @@ export function retryJob(id: string): Promise<Job> {
   return sendJson<Job>("POST", `/api/jobs/${id}/retry`);
 }
 
+export function setJobKeep(id: string, keep: boolean): Promise<Job> {
+  return sendJson<Job>("POST", `/api/jobs/${id}/keep`, { keep });
+}
+
 export function deleteJob(id: string): Promise<Response> {
   return fetch(`/api/jobs/${id}`, { method: "DELETE" }).then(async (r) => {
     if (!r.ok) throw await readError(r);
@@ -209,6 +215,84 @@ export function deleteOutputDir(): Promise<Response> {
       return r;
     },
   );
+}
+
+export function getDiagnostics(): Promise<Record<string, unknown>> {
+  return getJson<Record<string, unknown>>("/api/diagnostics");
+}
+
+/* ---------- models (M10 T3) ---------- */
+
+export function getModels(): Promise<{ models: ModelInfo[] }> {
+  return getJson<{ models: ModelInfo[] }>("/api/models");
+}
+
+export function startModelDownload(
+  modelId: string,
+): Promise<ModelDownloadState> {
+  return sendJson<ModelDownloadState>(
+    "POST",
+    `/api/models/${encodeURIComponent(modelId)}/download`,
+  );
+}
+
+export function cancelModelDownload(
+  modelId: string,
+): Promise<ModelDownloadState> {
+  return sendJson<ModelDownloadState>(
+    "POST",
+    `/api/models/${encodeURIComponent(modelId)}/download/cancel`,
+  );
+}
+
+/** SSE progress stream for one model download. Calls ``onState`` for
+ *  every state event and resolves on the terminal ``done`` event. */
+export function watchModelDownload(
+  modelId: string,
+  onState: (s: ModelDownloadState) => void,
+): { promise: Promise<ModelDownloadState>; close: () => void } {
+  const es = new EventSource(
+    `/api/models/${encodeURIComponent(modelId)}/download/events`,
+  );
+  let last: ModelDownloadState | null = null;
+  const promise = new Promise<ModelDownloadState>((resolve, reject) => {
+    es.addEventListener("state", (ev) => {
+      try {
+        last = JSON.parse(
+          (ev as MessageEvent).data,
+        ) as ModelDownloadState;
+        onState(last);
+      } catch {
+        /* malformed line — keep listening */
+      }
+    });
+    es.addEventListener("done", (ev) => {
+      try {
+        last = JSON.parse(
+          (ev as MessageEvent).data,
+        ) as ModelDownloadState;
+      } catch {
+        /* use last state */
+      }
+      es.close();
+      resolve(last ?? { model_id: modelId, state: "done" });
+    });
+    es.onerror = () => {
+      es.close();
+      reject(
+        new ApiError("network", "Download stream dropped", {
+          model_id: modelId,
+        }),
+      );
+    };
+  });
+  return { promise, close: () => es.close() };
+}
+
+export function putRetention(
+  days: number | "never",
+): Promise<{ retention_days: number | "never" }> {
+  return sendJson("PUT", "/api/settings/retention", { days });
 }
 
 export function pickOutputDir(): Promise<{

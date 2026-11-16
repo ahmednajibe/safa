@@ -10,6 +10,7 @@ environment is the hard CPU ceiling (SPEC §9) — nothing here touches it.
 """
 from __future__ import annotations
 
+import errno
 import json
 import os
 import sys
@@ -109,12 +110,25 @@ def main(argv: list[str]) -> int:
         return 1
     job_id = argv[0]
 
-    from backend.core.models_manifest import configure_model_env
+    from backend.core.models_manifest import (
+        configure_model_env,
+        install_socket_guard,
+    )
 
     configure_model_env()
+    if os.environ.get("SOUND_SYSTEM_SOCKET_GUARD") == "1":
+        # M10 T4 test hook — the offline e2e sets this so any real-world
+        # connect (model download, telemetry, DNS) fails loudly mid-job.
+        install_socket_guard()
     _prepend_ffmpeg_dir()
 
     settings = _settings()
+
+    from backend.core.paths import redirect_temp_env
+
+    # M10 T2: same redirect the API applied — defensive in case the env
+    # wasn't inherited (manual launches, tests).
+    redirect_temp_env(settings.data_dir)
 
     from backend.jobs.store import JobStore
     from backend.media.storage import job_dir
@@ -248,8 +262,22 @@ def main(argv: list[str]) -> int:
         try:
             with log_path.open("a", encoding="utf-8") as fh:
                 fh.write(traceback.format_exc())
+            from backend.core.logs import bound_log
+
+            bound_log(log_path)
         except OSError:
             pass
+        if getattr(exc, "errno", None) == errno.ENOSPC:
+            # M10 T5: a full disk is a clear, actionable failure — not a
+            # generic crash — and the dead job's intermediates go first.
+            _clear_dir(job_root / "output")
+            _clear_dir(job_root / "work")
+            text, code, params = msg("disk_full")
+            store.finish(
+                job_id, "failed", error=text,
+                error_code=code, error_params=params,
+            )
+            return 1
         # R1 B12: a failed job must not leave partial output files that
         # look like results (worker.log itself lives beside output/ and
         # survives for debugging).

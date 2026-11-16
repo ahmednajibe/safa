@@ -8,6 +8,7 @@ job ``interrupted`` so the next start can offer a retry.
 """
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -17,12 +18,16 @@ from pathlib import Path
 
 import psutil
 
+from backend.core.logs import bound_log
 from backend.core.messages import msg
 from backend.core.paths import ROOT
 from backend.core.settings import Settings
 from backend.jobs.models import TERMINAL, Job
 from backend.jobs.store import JobStore
 from backend.media.storage import job_dir
+
+
+_log = logging.getLogger("sound_system")
 
 
 def _finish_interrupted(store: JobStore, job_id: str) -> None:
@@ -270,6 +275,8 @@ class Supervisor:
         if self._stop.is_set():
             return  # leave it queued for the next start
         log_path = job_dir(job.id, self.settings.data_dir) / "worker.log"
+        # M10 T7: worker.log is bounded — head-truncate before appending.
+        bound_log(log_path)
         # R1 B2: cancel-check → spawn → mark_running is one locked
         # section — a racing cancel either sees _proc (and kills it) or
         # mark_running fails on the cancelled row and we kill it here.
@@ -289,6 +296,7 @@ class Supervisor:
                 # A cancel flipped the row while Popen ran — the newborn
                 # worker is an orphan; kill it before it does GPU work.
                 _kill_tree(proc)
+        _log.info("job %s: worker spawned (pid %s)", job.id, proc.pid)
         try:
             proc.wait()
         finally:
@@ -300,7 +308,11 @@ class Supervisor:
     def _after_exit(self, job_id: str) -> None:
         """Reconcile the job row after the worker exits / is killed."""
         job = self.store.get(job_id)
-        if job is None or job.state == "completed":
+        if job is None:
+            return
+        if job.state != "queued" and job.state != "running":
+            _log.info("job %s: %s", job_id, job.state)
+        if job.state == "completed":
             return
         if self._stop.is_set():
             if job.state not in TERMINAL:

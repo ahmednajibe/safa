@@ -1,12 +1,30 @@
-# scripts/setup.ps1 — idempotent environment setup.
+﻿# scripts/setup.ps1 — idempotent environment setup.
 # 1) uv sync (creates .venv with pinned Python 3.11 + all deps)
 # 2) ensure tools/ffmpeg/bin/{ffmpeg,ffprobe}.exe (downloads pinned static build)
+# 3) frontend build
+# 4) prefetch the core model set (M10) — -AllModels adds whisper_turbo +
+#    kim_vocal_2 (≈1.7 GB extra).
 # Safe to re-run.
+param(
+    [switch]$AllModels
+)
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
+
+# Keep C: clean (M10): every cache/temp dir lives under <root>\data\tmp so
+# installing on another drive never fills the system drive.
+$TmpDir = Join-Path $Root "data\tmp"
+New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
+$env:UV_CACHE_DIR = $TmpDir
+$env:npm_config_cache = $TmpDir
+$env:TEMP = $TmpDir
+$env:TMP = $TmpDir
+$env:TMPDIR = $TmpDir
+$env:PYTHONUTF8 = "1"
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 
 Write-Host "== uv sync =="
 uv sync
@@ -18,7 +36,7 @@ $FfmpegExe = Join-Path $FfmpegBin "ffmpeg.exe"
 
 if (-not (Test-Path $FfmpegExe)) {
     $Url = "https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip"
-    $Tmp = Join-Path $env:TEMP ("ffmpeg-dl-" + [Guid]::NewGuid().ToString("N"))
+    $Tmp = Join-Path $TmpDir ("ffmpeg-dl-" + [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $Tmp | Out-Null
     try {
         $ZipPath = Join-Path $Tmp "ffmpeg.zip"
@@ -62,6 +80,18 @@ if (Test-Path $FrontendDir) {
     } finally {
         Pop-Location
     }
+}
+
+# M10 T3: prefetch the core model set (deepfilternet3, htdemucs,
+# whisper_small — silero ships bundled). Optional models via -AllModels
+# or the app's Download buttons. A failed prefetch is a warning, not a
+# fatal error: the app downloads missing models on demand.
+Write-Host "== models =="
+$PrefetchArgs = @("run", "python", "scripts\prefetch_models.py")
+if ($AllModels) { $PrefetchArgs += "--all" }
+& uv @PrefetchArgs
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "model prefetch failed ($LASTEXITCODE) — the app can download models on first use."
 }
 
 Write-Host "== setup done =="

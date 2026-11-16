@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from backend.api.errors import err
 from backend.core import output_dir
 from backend.core.messages import MESSAGES as _MSG
+from backend.core.retention import RETENTION_CHOICES, retention_days
 
 router = APIRouter()
 
@@ -28,13 +29,32 @@ class OutputDirBody(BaseModel):
     path: str
 
 
-def _settings_payload(store) -> dict:
-    return {"output_dir": store.get_setting("output_dir")}
+class RetentionBody(BaseModel):
+    days: int | str
+
+
+def _settings_payload(request: Request) -> dict:
+    store = request.app.state.store
+    return {
+        "output_dir": store.get_setting("output_dir"),
+        "retention_days": retention_days(store, request.app.state.settings)
+        or "never",
+    }
 
 
 @router.get("/api/settings")
 def get_settings(request: Request):
-    return _settings_payload(request.app.state.store)
+    return _settings_payload(request)
+
+
+@router.put("/api/settings/retention")
+def put_retention(request: Request, body: RetentionBody):
+    """Retention window for old results: 1/7/30 days or "never" (M10 T6)."""
+    val = body.days
+    if val not in RETENTION_CHOICES:
+        return err(422, "bad_request", _MSG["bad_request"])
+    request.app.state.store.set_setting("retention_days", str(val))
+    return {"retention_days": val}
 
 
 @router.put("/api/settings/output-dir")
@@ -74,7 +94,7 @@ def pick_output_dir(request: Request):
             )
         if not picked:
             # Cancelled / timed out — keep the previous setting.
-            return {"cancelled": True, **_settings_payload(store)}
+            return {"cancelled": True, **_settings_payload(request)}
         try:
             resolved = output_dir.validate_output_dir(picked)
         except output_dir.OutputDirInvalid:

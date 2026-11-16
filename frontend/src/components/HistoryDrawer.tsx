@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { saveOne } from "../actions";
-import { deleteJob } from "../api/client";
+import { deleteJob, setJobKeep } from "../api/client";
 import type { Job } from "../api/types";
 import { useT } from "../i18n";
-import { fmtBytes } from "../lib/format";
+import { fmtBytes, fmtDate } from "../lib/format";
 import { useStore } from "../state/store";
 
 const TERMINAL_RE = /completed|failed|cancelled|interrupted/;
@@ -28,6 +28,14 @@ export function HistoryDrawer({
   const store = useStore();
   const { job } = store;
   const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  /** Auto-delete date for a terminal job: finished_at + retention days. */
+  const expiry = (j: Job): string | null => {
+    const d = store.settings.retentionDays;
+    if (d === "never" || j.keep || !j.finished_at) return null;
+    const ms = new Date(j.finished_at).getTime() + d * 86_400_000;
+    return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+  };
 
   return (
     <aside className="drawer" aria-label={t.d.history.title}>
@@ -61,11 +69,21 @@ export function HistoryDrawer({
                 {j.kind === "preview" && (
                   <span className="pill">{t.d.history.previewTag}</span>
                 )}
+                {j.keep && (
+                  <span className="pill kept">{t.d.history.kept}</span>
+                )}
                 <span
                   className={`state state-${j.state.replace(/[^a-z]/g, "")}`}
                 >
                   {stateLabel(t, j.state)}
                 </span>
+                {expiry(j) && (
+                  <span className="keep-until">
+                    {t.t(t.d.history.keptUntil, {
+                      date: fmtDate(expiry(j) as string, t.lang),
+                    })}
+                  </span>
+                )}
               </span>
               <span className="drawer-ops">
                 {j.ops
@@ -89,6 +107,20 @@ export function HistoryDrawer({
                     {fmtBytes(f.size_bytes)}
                   </button>
                 ))}
+              {TERMINAL_RE.test(j.state) && (
+                <label className="keep-row">
+                  <input
+                    type="checkbox"
+                    checked={j.keep}
+                    onChange={(e) =>
+                      setJobKeep(j.id, e.target.checked)
+                        .then(() => refresh())
+                        .catch(() => refresh())
+                    }
+                  />
+                  <span>{t.d.history.keepForever}</span>
+                </label>
+              )}
               {TERMINAL_RE.test(j.state) &&
                 (confirmId === j.id ? (
                   <span className="confirm-row">

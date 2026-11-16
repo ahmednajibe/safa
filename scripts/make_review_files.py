@@ -91,6 +91,13 @@ REVIEW = ROOT / "data" / "review"
 FPS = 25.0
 
 
+def _tmp_root() -> str:
+    """M10: temp work dirs live under data/tmp, never the system drive."""
+    d = ROOT / "data" / "tmp"
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
 # ---- M6: Podcast preset review files ------------------------------------------
 
 
@@ -581,7 +588,7 @@ def _m8(recordings: list[Path], device: str) -> list[dict]:
         except Exception as exc:  # report, don't kill the review run
             vram = {"error": str(exc)}
             print(f"  NOTE: turbo VRAM measurement failed: {exc}")
-    with tempfile.TemporaryDirectory(prefix="m8_review_") as td:
+    with tempfile.TemporaryDirectory(prefix="m8_review_", dir=_tmp_root()) as td:
         tmp = Path(td)
         for rec in recordings:
             print(f"processing {rec.name} (subtitles fast + accurate)…")
@@ -874,7 +881,7 @@ def _m4d_audit(
 def _m4d(rec: Path, device: str) -> None:
     """Per recording: new-pipeline wav, old-pipeline wav, numbered click
     audit (wav + txt)."""
-    with tempfile.TemporaryDirectory(prefix="m4d_review_") as td:
+    with tempfile.TemporaryDirectory(prefix="m4d_review_", dir=_tmp_root()) as td:
         tmp = Path(td)
         p = probe(rec)
         orig = tmp / f"{rec.stem.replace(' ', '_')}_orig.wav"
@@ -970,7 +977,7 @@ def _make_jumpcut_src(tmp: Path) -> Path:
 
 def _m5(recordings: list[Path]) -> list[dict]:
     rows = []
-    with tempfile.TemporaryDirectory(prefix="m5_review_") as td:
+    with tempfile.TemporaryDirectory(prefix="m5_review_", dir=_tmp_root()) as td:
         tmp = Path(td)
         for rec in recordings:
             dst = REVIEW / f"m5_{rec.stem}_cut.wav"
@@ -1005,7 +1012,7 @@ def main() -> int:
             _m4d(rec, device)
         return 0
     rows, rows_b, rows7 = [], [], []
-    with tempfile.TemporaryDirectory(prefix="m6_review_") as td:
+    with tempfile.TemporaryDirectory(prefix="m6_review_", dir=_tmp_root()) as td:
         tmp = Path(td)
         model = _whisper_model()
         for rec in recordings:

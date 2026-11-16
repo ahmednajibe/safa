@@ -30,6 +30,7 @@ from backend.main import create_app
 from backend.media.loudness import integrated_lufs
 from backend.media.probe import probe
 from backend.media.timeline import Timeline
+from tests.client import make_client
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
 SPEECH_SIL = GENERATED / "speech_silences.wav"
@@ -37,7 +38,7 @@ SPEECH = GENERATED / "speech.wav"
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 

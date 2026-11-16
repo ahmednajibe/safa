@@ -22,13 +22,15 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from backend.api.errors import err
-from backend.api.media import _file_response, _media_type
+from backend.api.media import _file_response, _insufficient, _media_type
 from backend.core import output_dir
 from backend.core.capabilities import detect_capabilities
+from backend.core.disk import needed_bytes_for_job
 from backend.core.messages import MESSAGES as _MSG
 from backend.db import connect
 from backend.jobs.models import TERMINAL, Job
 from backend.media.encode import AUDIO_FORMATS
+from backend.media.storage import free_space_bytes
 from backend.operations.rules import (
     ModelMissingError, ParamError, resolve, unavailable_code,
 )
@@ -76,12 +78,37 @@ def _media_row(db_path: Path, media_id: str):
     con = connect(db_path)
     try:
         return con.execute(
-            "SELECT id, filename, stored_path, probe_json FROM media"
-            " WHERE id = ?",
+            "SELECT id, filename, stored_path, size_bytes, probe_json"
+            " FROM media WHERE id = ?",
             (media_id,),
         ).fetchone()
     finally:
         con.close()
+
+
+# M10 T5: refuse to queue work the disk can't hold (intermediates +
+# outputs + headroom) — mid-run ENOSPC costs the user a whole job.
+_JOB_HEADROOM = 512 << 20
+
+
+def _disk_check(
+    settings,
+    probe_d: dict,
+    kind: str,
+    preview: dict | None,
+    output: dict,
+    audio_stream: int,
+    size_bytes: int,
+) -> JSONResponse | None:
+    """507 ``insufficient_storage`` when the estimated peak won't fit."""
+    needed = (
+        needed_bytes_for_job(
+            probe_d, kind, preview, output, audio_stream, size_bytes
+        )
+        + _JOB_HEADROOM
+    )
+    free = free_space_bytes(settings.data_dir)
+    return _insufficient(needed, free) if free < needed else None
 
 
 def _norm_ops(ops: Any) -> dict[str, dict]:
@@ -113,6 +140,10 @@ class JobRequest(BaseModel):
     device: str | None = None
     preview: dict | None = None
     audio_stream: int | None = None
+
+
+class KeepBody(BaseModel):
+    keep: bool
 
 
 @router.post("/api/jobs", status_code=201)
@@ -187,6 +218,13 @@ def create_job(request: Request, body: JobRequest):
         audio_stream = body.audio_stream
     else:
         audio_stream = min(audio_streams) if audio_streams else 0
+
+    too_full = _disk_check(
+        settings, probe_d, kind, preview, output, audio_stream,
+        row["size_bytes"] or 0,
+    )
+    if too_full is not None:
+        return too_full
 
     job = store.create(
         media_id=body.media_id,
@@ -319,8 +357,19 @@ def retry_job(request: Request, job_id: str):
         return err(404, "job_not_found", _MSG["job_not_found"])
     if job.state not in ("failed", "cancelled", "interrupted"):
         return err(409, "not_retryable", _MSG["not_retryable"])
-    if _media_row(settings.db_path, job.media_id) is None:
+    row = _media_row(settings.db_path, job.media_id)
+    if row is None:
         return err(404, "media_not_found", _MSG["media_not_found"])
+    try:
+        probe_d = json.loads(row["probe_json"] or "{}")
+    except json.JSONDecodeError:
+        probe_d = {}
+    too_full = _disk_check(
+        settings, probe_d, job.kind, job.preview, job.output,
+        job.audio_stream, row["size_bytes"] or 0,
+    )
+    if too_full is not None:
+        return too_full
     new_job = store.create(
         media_id=job.media_id,
         kind=job.kind,
@@ -333,6 +382,19 @@ def retry_job(request: Request, job_id: str):
     )
     request.app.state.supervisor.wake()
     return JSONResponse(_job_payload(store, new_job), status_code=201)
+
+
+@router.post("/api/jobs/{job_id}/keep")
+def keep_job(request: Request, job_id: str, body: KeepBody):
+    """Per-job Keep flag (M10 T6): exempts the job from the retention
+    sweep — the History drawer shows "Kept" instead of an expiry."""
+    store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    if store.get(job_id) is None:
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    store.set_keep(job_id, body.keep)
+    return _job_payload(store, store.get(job_id))
 
 
 @router.delete("/api/jobs/{job_id}", status_code=204)

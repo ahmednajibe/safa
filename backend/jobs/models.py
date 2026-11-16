@@ -54,6 +54,8 @@ class Job:
     started_at: str | None = None
     finished_at: str | None = None
     retry_of: str | None = None
+    # M10: Keep flag — exempts the job from the retention sweep.
+    keep: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -91,4 +93,5 @@ class Job:
             started_at=r.get("started_at"),
             finished_at=r.get("finished_at"),
             retry_of=r.get("retry_of"),
+            keep=bool(r.get("keep") or 0),
         )

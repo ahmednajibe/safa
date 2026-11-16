@@ -1,6 +1,12 @@
-import { useState } from "react";
-import type { DisabledOp, OpSpec } from "../api/types";
+import { useEffect, useRef, useState } from "react";
+import {
+  cancelModelDownload,
+  startModelDownload,
+  watchModelDownload,
+} from "../api/client";
+import type { DisabledOp, ModelDownloadState, OpSpec } from "../api/types";
 import { useT } from "../i18n";
+import { notifyModelsChanged } from "../hooks/useOperations";
 import { useStore } from "../state/store";
 import { ParamControl } from "./ParamControl";
 import { Switch } from "./Switch";
@@ -28,6 +34,94 @@ function pillText(t: ReturnType<typeof useT>, op: OpSpec): string | null {
     default:
       return op.available ? null : t.d.pill.unavailable;
   }
+}
+
+/** M10 T3: "Download model" on an unavailable card — POSTs the download
+ *  endpoint, watches SSE progress, offers Cancel. On done it broadcasts
+ *  ss-models-changed so the rack refetches and the card unlocks. */
+function ModelDownloadButton({
+  modelId,
+  mb,
+}: {
+  modelId: string;
+  mb: number | null;
+}) {
+  const t = useT();
+  const [st, setSt] = useState<ModelDownloadState | null>(null);
+  const watcher = useRef<ReturnType<typeof watchModelDownload> | null>(
+    null,
+  );
+
+  useEffect(() => () => watcher.current?.close(), []);
+
+  const begin = async () => {
+    setSt({ model_id: modelId, state: "downloading" });
+    try {
+      const s = await startModelDownload(modelId);
+      setSt(s);
+      if (s.state === "done") {
+        notifyModelsChanged();
+        return;
+      }
+      watcher.current = watchModelDownload(modelId, setSt);
+      watcher.current.promise
+        .then((final) => {
+          setSt(final);
+          if (final.state === "done") notifyModelsChanged();
+        })
+        .catch(() => setSt({ model_id: modelId, state: "error" }));
+    } catch {
+      setSt({ model_id: modelId, state: "error" });
+    }
+  };
+
+  if (st?.state === "downloading") {
+    const pct = st.pct != null ? Math.round(st.pct) : null;
+    return (
+      <div className="model-dl" role="status">
+        <div className="model-dl-bar">
+          <div
+            className="model-dl-fill"
+            style={{ width: pct != null ? `${pct}%` : "10%" }}
+          />
+        </div>
+        <span className="model-dl-label">
+          {pct != null
+            ? t.t(t.d.models.downloading, { pct })
+            : t.d.models.downloadingWait}
+        </span>
+        <button
+          type="button"
+          className="link-btn"
+          onClick={() => void cancelModelDownload(modelId)}
+        >
+          {t.d.models.cancel}
+        </button>
+      </div>
+    );
+  }
+  if (st?.state === "error") {
+    return (
+      <div className="model-dl">
+        <span className="model-dl-label err">{t.d.models.failed}</span>
+        <button
+          type="button"
+          className="link-btn"
+          onClick={() => void begin()}
+        >
+          {t.d.models.retry}
+        </button>
+      </div>
+    );
+  }
+  if (st?.state === "done") {
+    return <div className="model-dl done">{t.d.models.done}</div>;
+  }
+  return (
+    <button type="button" className="link-btn model-dl-btn" onClick={() => void begin()}>
+      {t.t(t.d.models.download, { mb: mb ?? "?" })}
+    </button>
+  );
 }
 
 /** One rack card: switch, name, description, params (advanced under a
@@ -74,6 +168,12 @@ export function OpCard({
       </div>
 
       {pill && <div className="pill">{pill}</div>}
+      {!op.available && op.unavailable_model && (
+        <ModelDownloadButton
+          modelId={op.unavailable_model}
+          mb={op.unavailable_model_mb}
+        />
+      )}
       {conflicted && (
         <div className="pill conflict-pill">{reasonText(t, conflict)}</div>
       )}

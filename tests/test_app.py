@@ -8,6 +8,7 @@ from backend.core.paths import ROOT
 from backend.core.settings import Settings, get_settings
 from backend.db import connect, init_db
 from backend.main import create_app
+from tests.client import make_client
 
 DIST_INDEX = ROOT / "frontend" / "dist" / "index.html"
 needs_dist = pytest.mark.skipif(
@@ -16,7 +17,7 @@ needs_dist = pytest.mark.skipif(
 
 
 def _client(tmp_path):
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 

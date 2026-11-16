@@ -7,10 +7,11 @@ from fastapi.testclient import TestClient
 import backend.core.models_manifest as manifest
 from backend.core.settings import Settings
 from backend.main import create_app
+from tests.client import make_client
 
 
 def _client(tmp_path):
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 

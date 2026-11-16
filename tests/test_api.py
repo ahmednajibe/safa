@@ -7,10 +7,11 @@ from fastapi.testclient import TestClient
 from backend.core.paths import ROOT
 from backend.core.settings import Settings
 from backend.main import create_app
+from tests.client import make_client
 
 
 def _client(tmp_path):
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 
@@ -39,7 +40,9 @@ def test_health_does_not_import_torch():
         "import sys\n"
         "from fastapi.testclient import TestClient\n"
         "from backend.main import app\n"
-        "r = TestClient(app).get('/api/health')\n"
+        "p = app.state.settings.port\n"
+        "r = TestClient(app, base_url=f'http://127.0.0.1:{p}')"
+        ".get('/api/health')\n"
         "assert r.status_code == 200, r.text\n"
         "bad = [m for m in sys.modules if m == 'torch' or m.startswith('torch.')]\n"
         "assert not bad, f'torch imported in API process: {bad[:3]}'\n"

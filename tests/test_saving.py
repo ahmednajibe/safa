@@ -30,6 +30,7 @@ from backend.main import create_app
 from backend.media.probe import probe
 from backend.pipeline.types import OutputFile
 from backend.worker import main as worker_main
+from tests.client import make_client
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
 ARABIC_WAV = GENERATED / "تسجيل اختبار 1.wav"
@@ -40,7 +41,7 @@ CROSS_FETCH = {"Sec-Fetch-Site": "cross-site"}
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 
@@ -200,7 +201,7 @@ def test_store_settings_roundtrip(tmp_path):
 def test_get_settings_initially_null(tmp_path):
     r = _client(tmp_path).get("/api/settings")
     assert r.status_code == 200
-    assert r.json() == {"output_dir": None}
+    assert r.json() == {"output_dir": None, "retention_days": 7}
 
 
 def test_put_output_dir_valid_roundtrip(tmp_path, fake_root):

@@ -78,6 +78,8 @@ _JOBS_NEW_COLUMNS = (
     ("warnings_json", "TEXT"),
     ("stage_id", "TEXT"),
     ("eta_sec", "REAL"),
+    # M10: per-job Keep flag — the retention sweep never deletes it.
+    ("keep", "INT DEFAULT 0"),
 )
 
 # M9a Task 0: where each output was auto-copied (SPEC §12), NULL when the

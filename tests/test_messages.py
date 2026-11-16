@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from backend.core.settings import Settings
 from backend.main import create_app
+from tests.client import make_client
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
 SPEECH = GENERATED / "speech.wav"
@@ -47,7 +48,7 @@ _CODE_PATTERNS = [
 
 
 def _client(tmp_path):
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 

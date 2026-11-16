@@ -1,95 +1,78 @@
-"""Prefetch ML model files under ``models/`` (SPEC §8 offline story).
+"""Prefetch ML model files under ``models/`` (SPEC §8 offline story,
+M10 T3).
 
-M7 scope: the two audio-separator models plus every metadata JSON the
-library downloads at ``load_model`` time — driving the real load path
-fetches exactly the files the engine needs (weights, ``htdemucs.yaml``,
-``download_checks.json``, ``vr_model_data.json``, ``mdx_model_data.json``),
-nothing hardcoded to rot.
+Every fetch goes through ``backend.core.model_download.download_model``
+— the same allowlisted, pinned, sha-verified, ``.part``+atomic-rename
+downloader the UI's download endpoint uses. DeepFilterNet3 is no longer
+skipped: it is part of the core set below.
 
 Usage:  uv run python scripts/prefetch_models.py [model ...]
-        (default: the separation + whisper models; ``--all`` for every
-        known model)
+        (default: the core set; ``--all`` for every known model)
 """
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from backend.core.models_manifest import MODELS, model_dir  # noqa: E402
+from backend.core.model_download import download_model  # noqa: E402
+from backend.core.models_manifest import (  # noqa: E402
+    MODELS,
+    configure_model_env,
+)
 
-SEPARATOR_MODELS = ("htdemucs", "kim_vocal_2")
-WHISPER_MODELS = ("whisper_small", "whisper_turbo")
+# M10 T3: setup prefetches the core set; whisper_turbo + kim_vocal_2 are
+# opt-in (--all / UI download button) because of their size.
+CORE_MODELS = ("deepfilternet3", "htdemucs", "whisper_small", "silero_vad")
 
-
-def _dir_snapshot(d: Path) -> set[str]:
-    return {p.name for p in d.iterdir()} if d.is_dir() else set()
-
-
-def prefetch_separator(model: str) -> list[str]:
-    """Load ``model`` once on CPU — the library downloads every missing
-    weight/metadata file into ``model_dir`` itself. Returns new files."""
-    from backend.media import separator
-
-    d = model_dir(model)
-    before = _dir_snapshot(d)
-    t0 = time.monotonic()
-    # device='cpu' is enough — files land the same either way and this
-    # keeps prefetch usable on machines without a GPU.
-    eng = separator._make_engine(model, "cpu", {"voice"}, 7)
-    eng.close()
-    after = _dir_snapshot(d)
-    got = sorted(after - before)
-    print(
-        f"{model}: {'already cached' if not got else 'downloaded'} "
-        f"({time.monotonic() - t0:.0f}s)"
-    )
-    for name in got:
-        print(f"  + {name}")
-    return got
+_LAST_FILE = [""]
 
 
-def prefetch_whisper(model: str) -> None:
-    """Build the whisper model once on CPU — faster-whisper's
-    ``snapshot_download`` fills the HF layout under ``models/whisper/``
-    with exactly the files runtime needs."""
-    t0 = time.monotonic()
-    from faster_whisper import WhisperModel  # noqa: E402 — worker script
+def _report(model: str):
+    def _p(ev: dict) -> None:
+        name = ev.get("file", "")
+        if name != _LAST_FILE[0]:
+            _LAST_FILE[0] = name
+            print(f"  {name}")
+        pct = ev.get("pct")
+        if pct is not None:
+            # same-line progress: \r keeps the console readable
+            print(f"    {pct:5.1f} %", end="\r", flush=True)
 
-    from backend.media.transcribe import _MANIFEST_KEYS, MODEL_IDS
+    return _p
 
-    model_key = next(
-        k for k, v in _MANIFEST_KEYS.items() if v == model
-    )
-    m = WhisperModel(
-        MODEL_IDS[model_key],
-        device="cpu",
-        compute_type="int8",
-        download_root=str(model_dir(model)),
-    )
-    del m
-    print(f"{model}: ready ({time.monotonic() - t0:.0f}s)")
+
+def prefetch(model: str) -> bool:
+    print(f"{model} ({MODELS[model].approx_mb} MB):")
+    try:
+        out = download_model(model, on_progress=_report(model))
+    except Exception as exc:
+        print(f"  FAILED: {exc}")
+        return False
+    if out.get("already"):
+        print("  already present")
+    else:
+        print("  done")
+    return True
 
 
 def main() -> int:
+    # Downloads ARE the point here — every other component stays offline.
+    configure_model_env(offline=False)
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    names = args or list(SEPARATOR_MODELS) + list(WHISPER_MODELS)
+    names = args or list(CORE_MODELS)
     if "--all" in sys.argv:
         names = list(MODELS)
+    ok = True
     for name in names:
         if name not in MODELS:
             print(f"unknown model {name!r} — choices: {sorted(MODELS)}")
             return 2
-        if name in SEPARATOR_MODELS:
-            prefetch_separator(name)
-        elif name in WHISPER_MODELS:
-            prefetch_whisper(name)
-        else:
-            print(f"{name}: prefetch not implemented yet (lazy at first use)")
-    return 0
+        if not prefetch(name):
+            ok = False
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

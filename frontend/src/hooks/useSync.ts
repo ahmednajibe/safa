@@ -51,7 +51,11 @@ export function useSync(): void {
 
     getSettings()
       .then((s) =>
-        dispatchSettings({ type: "settings", outputDir: s.output_dir }),
+        dispatchSettings({
+          type: "settings",
+          outputDir: s.output_dir,
+          retentionDays: s.retention_days,
+        }),
       )
       .catch(() => {});
 
@@ -120,12 +124,14 @@ export function useSync(): void {
         const d = e.data as {
           type?: string;
           outputDir?: string | null;
+          retentionDays?: number | "never";
           jobId?: string;
         };
         if (d?.type === "settings") {
           dispatchSettings({
             type: "settings",
             outputDir: d.outputDir ?? null,
+            retentionDays: d.retentionDays,
           });
         } else if (d?.type === "job" && d.jobId) {
           getJob(d.jobId)
@@ -178,9 +184,16 @@ export function useSync(): void {
   }, [job.activeId, job.job?.state]);
 }
 
-export function broadcastSettings(outputDir: string | null): void {
+export function broadcastSettings(
+  outputDir: string | null,
+  retentionDays?: number | "never",
+): void {
   try {
-    new BroadcastChannel(CH).postMessage({ type: "settings", outputDir });
+    new BroadcastChannel(CH).postMessage({
+      type: "settings",
+      outputDir,
+      retentionDays,
+    });
   } catch {
     /* unsupported */
   }

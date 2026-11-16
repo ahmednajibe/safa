@@ -52,6 +52,9 @@ MESSAGES: dict[str, str] = {
     "job_interrupted": "Stopped because the app was closed",
     "job_cancelled": "Cancelled",
     "job_failed": "The job failed",
+    "disk_full": (
+        "The disk filled up while processing — free some space and try again."
+    ),
     "prep_failed": "We couldn't read the audio in this file.",
     # api errors (SPEC §5)
     "insufficient_storage": (

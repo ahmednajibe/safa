@@ -132,6 +132,32 @@ pytest 9.1.1 · httpx 0.28.1
   parse the **last** `I:` match.
 - `test_find_ffmpeg_prefers_tools_dir` verified failing without `tools/` (RED), passing after.
 
+## M10 performance check (2025-11-22, `scripts/perf_m10.py`)
+
+60-minute synthetic speech (SAPI fixture tiled with 0.5 s gaps, 48 kHz
+mono WAV) through the full **Podcast** preset (highpass → dehum →
+declick → AI denoise → dereverb → breaths → enhance → silence-remove →
+loudness −16 LUFS), end-to-end via a real uvicorn + worker subprocess,
+same code path as the UI. Job `device` was pinned per run.
+
+| run | wall | ratio vs realtime | UI probe (median / max) |
+|---|---|---|---|
+| GPU (GTX 1650) | **3964.8 s (66.1 min)** | 1.101× | `GET /` 0.0 s / 0.219 s, `GET /api/health` 0.0 s / 0.063 s (789 samples) |
+| CPU-only | **4048.4 s (67.5 min)** | 1.125× | `GET /` 0.0 s / 0.140 s, `GET /api/health` 0.0 s / 0.016 s (802 samples) |
+| CPU-only, 10-min file | 702.5 s | 1.171× incl. ~20 s fixed startup | same pattern |
+
+Both 60-min jobs **completed** with `error: null`. CPU extrapolation
+(10-min × 6 ≈ 70 min) predicted the measured 67.5 min within ~4% —
+the pipeline scales linearly with duration. GPU vs CPU differs by only
+~2% wall because the dominating stages (mouth-declick ×2, dereverb)
+are CPU DSP on both devices; DFN denoise is the main GPU-advantaged
+stage (≈2.5 min vs ≈4.8 min).
+
+**UI stayed responsive** throughout: the HTTP layer (index page +
+health) answered in ≤220 ms worst case across ~1600 samples while a
+worker saturated a core — the supervisor's out-of-process worker keeps
+the API event loop free.
+
 ## Recommendations for M2+
 
 - **Default separator on GPU: htdemucs.** 3.2 s vs MDX 5.8 s and 720 MB vs 2306 MB VRAM

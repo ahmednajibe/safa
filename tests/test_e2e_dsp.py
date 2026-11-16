@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from backend.core.settings import Settings
 from backend.main import create_app
+from tests.client import make_client
 from backend.media.loudness import integrated_lufs, true_peak_db
 from backend.media.probe import probe
 
@@ -21,7 +22,7 @@ REAL = Path(__file__).parent / "fixtures" / "real"
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 

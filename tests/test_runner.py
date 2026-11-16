@@ -7,6 +7,8 @@ import pytest
 import soundfile as sf
 from fastapi.testclient import TestClient
 
+from tests.client import make_client
+
 from backend.core.capabilities import Capabilities
 from backend.core.settings import Settings
 from backend.db import connect
@@ -363,7 +365,7 @@ def test_sanitize_stem_windows_reserved_names():
 
 
 def _client(tmp_path):
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 

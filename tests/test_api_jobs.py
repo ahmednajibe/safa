@@ -18,6 +18,7 @@ from backend.core.capabilities import Capabilities
 from backend.core.settings import Settings
 from backend.main import create_app
 from backend.pipeline.types import OutputFile
+from tests.client import make_client
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
 ARABIC_WAV = GENERATED / "تسجيل اختبار 1.wav"
@@ -25,7 +26,7 @@ SPEECH = GENERATED / "speech.wav"
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 

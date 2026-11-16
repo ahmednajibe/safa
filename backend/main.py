@@ -10,15 +10,21 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.errors import err
+from backend.api.diagnostics import router as diagnostics_router
 from backend.api.estimate import router as estimate_router
 from backend.api.health import router as health_router
 from backend.api.jobs import router as jobs_router
+from backend.api import media as media_api
 from backend.api.media import router as media_router
+from backend.api.models import ModelDownloadManager
+from backend.api.models import router as models_router
 from backend.api.operations import router as operations_router
 from backend.api.settings import router as settings_router
+from backend.core.logs import setup_app_logging
 from backend.core.messages import MESSAGES as _MSG
 from backend.core.models_manifest import configure_model_env
-from backend.core.paths import ROOT
+from backend.core.paths import ROOT, redirect_temp_env
+from backend.core.retention import RetentionSweeper, retention_days
 from backend.core.settings import Settings, get_settings
 from backend.db import init_db
 from backend.jobs.store import JobStore
@@ -59,7 +65,6 @@ _FALLBACK_HTML = """<!doctype html>
 
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _LOOPBACK_NAMES = {"127.0.0.1", "localhost"}
-_TEST_HOST = "testserver"  # starlette TestClient default Host
 
 
 def _host_port(authority: str) -> tuple[str, int | None]:
@@ -77,12 +82,10 @@ def _host_port(authority: str) -> tuple[str, int | None]:
 
 
 def _loopback_host(authority: str | None, port: int) -> bool:
-    """True for ``127.0.0.1:<port>`` / ``localhost:<port>`` / TestClient."""
+    """True for exactly ``127.0.0.1:<port>`` / ``localhost:<port>``."""
     if not authority:
         return False
     name, hport = _host_port(authority)
-    if name == _TEST_HOST:
-        return True
     return name in _LOOPBACK_NAMES and hport == port
 
 
@@ -136,21 +139,41 @@ async def _lifespan(app: FastAPI):
     app.state.supervisor.kill_orphan_workers()
     app.state.store.mark_interrupted_on_startup()
     app.state.supervisor.start()
+    # M10 T6: retention sweep at startup, then every 24 h — media mid-prep
+    # is reported as skip_media so it can never be swept under the prep thread.
+    app.state.sweeper = RetentionSweeper(
+        app.state.store,
+        app.state.settings.data_dir,
+        lambda: retention_days(app.state.store, app.state.settings),
+        lambda: set(media_api._PREP_THREADS),
+    )
+    app.state.sweeper.start()
+    import logging
+
+    logging.getLogger("sound_system").info(
+        "app started on 127.0.0.1:%s", app.state.settings.port
+    )
     try:
         yield
     finally:
+        app.state.model_downloads.stop()
+        app.state.sweeper.stop()
         app.state.supervisor.stop()
+        logging.getLogger("sound_system").info("app stopped")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     s = settings or get_settings()
     configure_model_env()
+    redirect_temp_env(s.data_dir)
     _prepend_ffmpeg_dir()
     init_db(s.db_path)
+    setup_app_logging(s.data_dir)
     app = FastAPI(title="Sound System", lifespan=_lifespan)
     app.state.settings = s
     app.state.store = JobStore(s.db_path)
     app.state.supervisor = Supervisor(app.state.store, s)
+    app.state.model_downloads = ModelDownloadManager()
 
     @app.middleware("http")
     async def host_origin_guard(request: Request, call_next):
@@ -179,6 +202,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(estimate_router)
     app.include_router(jobs_router)
     app.include_router(settings_router)
+    app.include_router(models_router)
+    app.include_router(diagnostics_router)
     _mount_spa(app)
     return app
 

@@ -65,6 +65,17 @@ export function truncateMiddle(s: string, max = 42): string {
   return `${s.slice(0, keep)}…${s.slice(-keep)}`;
 }
 
+/** "Kept until {date}" — short localized date, Western digits like nf(). */
+export function fmtDate(iso: string, lang: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat(lang === "ar" ? "ar-u-nu-latn" : "en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(d);
+}
+
 export function shortGpuName(name: string): string {
   return name.replace(/^NVIDIA\s+(GeForce\s+)?/i, "").trim() || name;
 }

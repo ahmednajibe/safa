@@ -20,6 +20,7 @@ from backend.core.proc import run
 from backend.core.settings import Settings
 from backend.db import connect
 from backend.main import create_app
+from tests.client import make_client
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
 CLIP = GENERATED / "clip.mp4"
@@ -27,7 +28,7 @@ ARABIC_WAV = GENERATED / "تسجيل اختبار 1.wav"
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 
@@ -437,7 +438,7 @@ def test_upload_still_enforces_max_upload_mb(tmp_path):
     settings = Settings(
         data_dir=tmp_path, db_path=tmp_path / "app.db", max_upload_mb=0
     )
-    c = TestClient(create_app(settings))
+    c = make_client(create_app(settings))
     r = _upload(c, CLIP)
     assert r.status_code == 413
     assert r.json()["code"] == "too_large"

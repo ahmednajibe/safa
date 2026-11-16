@@ -76,9 +76,9 @@ def test_declick_final_is_hidden():
 
 
 def test_operations_endpoint_hides_declick_final(tmp_path):
-    from fastapi.testclient import TestClient
+    from tests.client import make_client
 
-    c = TestClient(
+    c = make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
     ops = c.get("/api/operations").json()["operations"]

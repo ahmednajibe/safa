@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import {
   deleteOutputDir,
+  getDiagnostics,
   pickOutputDir,
   putOutputDir,
+  putRetention,
   revealOutputDir,
 } from "../api/client";
 import { ApiError } from "../api/types";
@@ -22,10 +24,40 @@ export function SettingsPopover() {
   const [pathInput, setPathInput] = useState("");
   const [errCode, setErrCode] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [diagState, setDiagState] = useState<"" | "busy" | "ok" | "fail">("");
 
   const setDir = (dir: string | null) => {
-    dispatchSettings({ type: "settings", outputDir: dir });
-    broadcastSettings(dir);
+    dispatchSettings({
+      type: "settings",
+      outputDir: dir,
+      retentionDays: settings.retentionDays,
+    });
+    broadcastSettings(dir, settings.retentionDays);
+  };
+
+  const copyDiagnostics = () => {
+    setDiagState("busy");
+    getDiagnostics()
+      .then((d) =>
+        navigator.clipboard
+          .writeText(JSON.stringify(d, null, 2))
+          .then(() => setDiagState("ok"))
+          .catch(() => setDiagState("fail")),
+      )
+      .catch(() => setDiagState("fail"));
+  };
+
+  const setRetention = (days: number | "never") => {
+    putRetention(days)
+      .then(() => {
+        dispatchSettings({
+          type: "settings",
+          outputDir: settings.outputDir,
+          retentionDays: days,
+        });
+        broadcastSettings(settings.outputDir, days);
+      })
+      .catch(() => {});
   };
 
   const chooseAsk = () => {
@@ -161,6 +193,54 @@ export function SettingsPopover() {
             {t.d.action.save}
           </button>
         </form>
+      )}
+
+      <div className="pop-title sub">{t.d.settings.keepTitle}</div>
+      <div
+        className="radio-col"
+        role="radiogroup"
+        aria-label={t.d.settings.keepTitle}
+      >
+        {(
+          [
+            [1, t.d.settings.keep1],
+            [7, t.d.settings.keep7],
+            [30, t.d.settings.keep30],
+            ["never", t.d.settings.keepAlways],
+          ] as const
+        ).map(([d, label]) => (
+          <label className="radio-row" key={String(d)}>
+            <input
+              type="radio"
+              name="retention"
+              checked={settings.retentionDays === d}
+              onChange={() => setRetention(d)}
+            />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+
+      <div className="pop-title sub">{t.d.settings.diagnosticsTitle}</div>
+      <div className="pop-actions">
+        <button
+          type="button"
+          className="btn-small"
+          onClick={copyDiagnostics}
+          disabled={diagState === "busy"}
+        >
+          {t.d.settings.diagnosticsCopy}
+        </button>
+      </div>
+      {diagState === "ok" && (
+        <div className="pop-note" role="status">
+          {t.d.settings.diagnosticsCopied}
+        </div>
+      )}
+      {diagState === "fail" && (
+        <div className="pop-note neg" role="alert">
+          {t.d.settings.diagnosticsFailed}
+        </div>
       )}
     </div>
   );

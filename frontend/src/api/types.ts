@@ -56,9 +56,12 @@ export interface OpSpec {
   changes_timeline: boolean;
   requires_modules: string[];
   requires_models: string[];
+  model_options: Record<string, Record<string, string>>;
   planned: boolean;
   available: boolean;
   unavailable_code: "planned" | "module_missing" | "model_missing" | null;
+  unavailable_model: string | null;
+  unavailable_model_mb: number | null;
 }
 
 export interface Preset {
@@ -195,6 +198,7 @@ export interface Job {
   finished_at: string | null;
   retry_of: string | null;
   queue_position: number | null;
+  keep: boolean;
   files?: JobFile[];
   filename?: string | null;
 }
@@ -217,6 +221,30 @@ export interface Estimate {
 
 export interface AppSettings {
   output_dir: string | null;
+  retention_days: number | "never";
+}
+
+/* ---------- models (M10 T3) ---------- */
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  engine: string;
+  approx_mb: number;
+  measured_bytes: number;
+  present: boolean;
+  downloading: boolean;
+}
+
+export interface ModelDownloadState {
+  model_id: string;
+  state: "idle" | "downloading" | "done" | "error" | "cancelled";
+  file?: string;
+  done_bytes?: number;
+  total_bytes?: number;
+  pct?: number;
+  detail?: string;
+  already?: boolean;
 }
 
 export interface TimelineSegment {

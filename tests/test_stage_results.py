@@ -19,6 +19,7 @@ from backend.core.settings import Settings
 from backend.db import connect, init_db
 from backend.jobs.store import JobStore
 from backend.main import create_app
+from tests.client import make_client
 from backend.media.probe import probe
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
@@ -228,7 +229,7 @@ def test_worker_failed_job_marks_stage_failed(tmp_path, monkeypatch):
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 

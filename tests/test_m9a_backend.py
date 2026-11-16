@@ -22,6 +22,7 @@ from backend.main import create_app
 from backend.media.probe import probe
 from backend.pipeline.runner import run_pipeline
 from backend.pipeline.types import OutputFile, OutputSpec, Progress
+from tests.client import make_client
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
 ARABIC_WAV = GENERATED / "تسجيل اختبار 1.wav"
@@ -29,7 +30,7 @@ CLIP = GENERATED / "clip.mp4"
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 

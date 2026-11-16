@@ -426,6 +426,12 @@ kbd {
   font-weight: 600;
   margin-block-end: 10px;
 }
+.pop-title.sub {
+  margin-block-start: 14px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--rule);
+}
+.radio-col { display: grid; }
 .help-list {
   margin: 0;
   padding: 0;
@@ -1106,6 +1112,45 @@ kbd {
   gap: 10px;
   padding: 0 16px 10px;
 }
+.keep-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.keep-row input { accent-color: #ffffff; }
+.keep-until {
+  color: var(--faint);
+  font-size: var(--fs-small);
+}
+.pill.kept { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+
+/* ---------- Model download (M10) ---------- */
+.model-dl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-block-start: 8px;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.model-dl-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: var(--radius-control);
+  background: var(--well);
+  overflow: hidden;
+}
+.model-dl-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--data);
+  transition: width 0.3s var(--ease);
+}
+.model-dl-label.err { color: var(--negative); }
+.model-dl.done { color: var(--positive); }
+.model-dl-btn { margin-block-start: 8px; }
 .confirm-row {
   display: flex;
   align-items: center;

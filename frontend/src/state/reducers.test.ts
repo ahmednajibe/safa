@@ -92,6 +92,7 @@ const JOB: Job = {
   finished_at: null,
   retry_of: null,
   queue_position: 1,
+  keep: false,
   files: [],
 };
 

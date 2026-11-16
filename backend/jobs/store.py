@@ -445,6 +445,72 @@ class JobStore:
         finally:
             con.close()
 
+    # ---- retention (M10 T6) -------------------------------------------------
+
+    def set_keep(self, job_id: str, keep: bool) -> None:
+        con = self._con()
+        try:
+            con.execute(
+                "UPDATE jobs SET keep=? WHERE id=?",
+                (1 if keep else 0, job_id),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+    def expired_terminal_jobs(self, cutoff_iso: str) -> list[Job]:
+        """Terminal, unkept jobs with ``finished_at`` before the cutoff —
+        a coarse filter; the caller re-checks each row before deleting."""
+        con = self._con()
+        try:
+            rows = con.execute(
+                "SELECT * FROM jobs"
+                " WHERE state IN ('completed','failed','cancelled','interrupted')"
+                " AND COALESCE(keep,0)=0"
+                " AND finished_at IS NOT NULL AND finished_at < ?",
+                (cutoff_iso,),
+            ).fetchall()
+            return [Job.from_row(r) for r in rows]
+        finally:
+            con.close()
+
+    def unreferenced_media_ids(self, older_than: str | None = None) -> list[str]:
+        """Media ids no job row references anymore. ``older_than`` (ISO
+        timestamp) keeps fresh uploads the user has not processed yet —
+        only media created before it are returned."""
+        con = self._con()
+        try:
+            sql = (
+                "SELECT id FROM media WHERE id NOT IN"
+                " (SELECT DISTINCT media_id FROM jobs)"
+            )
+            args: tuple = ()
+            if older_than is not None:
+                sql += " AND created_at IS NOT NULL AND created_at < ?"
+                args = (older_than,)
+            rows = con.execute(sql, args).fetchall()
+            return [r["id"] for r in rows]
+        finally:
+            con.close()
+
+    def delete_media(self, media_id: str) -> None:
+        con = self._con()
+        try:
+            con.execute("DELETE FROM media WHERE id=?", (media_id,))
+            con.commit()
+        finally:
+            con.close()
+
+    def media_filenames(self) -> list[str]:
+        """Original upload names — treated as private strings to scrub
+        from diagnostics (M10 T7)."""
+        con = self._con()
+        try:
+            rows = con.execute("SELECT filename FROM media").fetchall()
+            return [r["filename"] for r in rows]
+        finally:
+            con.close()
+
     # ---- output files ---------------------------------------------------------
 
     def add_file(self, job_id: str, f: OutputFile) -> None:

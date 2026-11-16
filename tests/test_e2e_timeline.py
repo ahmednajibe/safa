@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from backend.core.settings import Settings
 from backend.main import create_app
+from tests.client import make_client
 from backend.media.probe import probe
 
 GENERATED = Path(__file__).parent / "fixtures" / "generated"
@@ -23,7 +24,7 @@ CLIP = GENERATED / "clip.mp4"
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
+    return make_client(
         create_app(Settings(data_dir=tmp_path, db_path=tmp_path / "app.db"))
     )
 
