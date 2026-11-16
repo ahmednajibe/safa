@@ -41,3 +41,36 @@ Header: icon, name, one-line pitch ("Clean audio and video on your own computer"
 
 ## 8. Acceptance tests
 `test_launcher_module` (single instance, port busy, Arabic+space root, browser open mocked), `test_exe_launcher_lifecycle` (compile stub, start, second instance exits 0, close → no orphan python/ffmpeg), `test_paths_installed_vs_portable`, `test_variant_extras_lock` (lock resolves cpu/cu124 on win, cpu on linux/mac markers), `test_inno_silent_install_upgrade_uninstall` (silent install into `data\tmp\inst test\تجربة`, CPU variant, health + short Podcast job, reinstall keeps data, uninstall keeps data), `test_install_ps1_dry_run`, `test_install_sh_lint` (shellcheck if available, else bash -n) + dry run under Git Bash, `test_cross_platform_reveal`, `test_readme_llms_sync`. Real CPU install end-to-end once on this machine (needs internet; uv cache in data\tmp).
+
+## 9. Full install catalogue — user decision 2026-11-16 (SUPERSEDES the "one artifact" idea in §1 and the list in §4)
+User: "No i wanna the all ways to install not one". Follow-up round: `docs/brainstorm/{astra,argon}_dist2.md` (prompt `dist2_prompt.md`). Every method below ships; the README Install section lists them all per OS with size, internet need and signing warning (EN + AR). The small online installer from §1 stays as the **recommended** default, not the only route.
+
+### Wave 1 — M10c (this milestone)
+Windows
+1. Online `Safa-<ver>-win-x64-setup.exe` (~100–150 MB; runtime via uv from official indexes, NVIDIA auto-detect, CPU override, data-folder page).
+2. Offline CPU `Safa-<ver>-win-x64-cpu-offline-setup.exe` (one file < 2 GiB, runtime + core models included).
+3. Offline GPU `Safa-<ver>-win-x64-gpu-offline-setup.exe` + `-1.bin … -N.bin` via **Inno disk spanning** (`DiskSpanning=yes`, slices ≤ 1.8 GiB); setup refuses missing/mixed-version slices with a bilingual message.
+4. Portable zips: CPU `…-cpu-portable.zip`; GPU split `…-gpu-portable.7z.001…` (≤ 1.8 GiB) + bilingual `assemble-gpu.bat` (verifies each part against SHA256SUMS.txt before joining, refuses corrupt/missing parts, checks free space, extracts with a bundled 7zr.exe).
+5. One-liner `irm …/install.ps1 | iex` (+ documented "download, inspect, run" alternative; `-Variant cpu|gpu -DataDir -Offline`).
+6. winget manifest (`packaging/winget/`, wraps the online installer; `winget install --manifest` works locally; submission to winget-pkgs only after the user approves publishing).
+7. Scoop manifest (`packaging/scoop/safa.json`, CPU portable zip + hash; GPU via `-Variant` note).
+8. From source with uv.
+macOS (Apple Silicon first; beta until tested on a real Mac)
+9. `install.sh` one-liner (CPU, `~/Applications/Safa`, Desktop `.command`; never strips quarantine from anything but our own files).
+10. Homebrew tap formula `packaging/homebrew/safa.rb` (`brew install --formula …`).
+11. Portable tarball `Safa-<ver>-macos-arm64.tar.gz`.
+12. From source.
+Linux x86_64 (beta until tested on real hardware)
+13. `install.sh` one-liner (`--variant cpu|cuda`, `~/.local/share/safa`, `~/.local/bin/safa`, `.desktop`).
+14. AUR `packaging/aur/PKGBUILD`.
+15. Portable tarballs CPU (+ CUDA split if > 2 GiB).
+16. From source.
+Any OS
+17. Docker images CPU + CUDA (multi-stage: node builds dist → python:3.11-slim + ffmpeg + `uv sync --frozen --extra cpu|cu124`), `docker-compose.yml`. Host binding ALWAYS `127.0.0.1:8790:8790`; new `SOUND_SYSTEM_BIND_HOST` (default 127.0.0.1, `0.0.0.0` only set inside the image); Host/Origin guard unchanged; volume `/data` (`SOUND_SYSTEM_DATA_DIR=/data`).
+18. **Offline model pack** `Safa-models-core-<ver>.zip` (~590 MB, checksummed) + `Safa-models-all-<ver>` (split if needed) and an in-app / CLI import (`python -m backend.launcher models import <zip>`): offline installers and USB users never need internet.
+
+### Wave 2 — M10d (next milestone, after M10c is reviewed)
+`.deb` (`/opt/safa`, menu entry, `Depends: ffmpeg`), unsigned macOS `.app` in `.dmg` (Right-click → Open documented; no automatic quarantine removal), AppImage, PyPI **bootstrap wheel** `safa-audio` (name currently unclaimed; command `safa`; wheel carries app + frontend/dist + pinned uv + locks; `safa setup --device cpu|cuda` provisions the runtime — extras alone cannot select the PyTorch index), Chocolatey package, Flatpak (attempt; if the sandbox blocks GPU/file access, document why and keep it disabled), RPM. Each verified in CI where a runner exists.
+
+### Added acceptance tests (Wave 1)
+`test_gpu_split_assembler_and_tamper` (corrupt / missing / mixed-version parts rejected), `test_inno_offline_cpu_lifecycle` and spanned-GPU slice check (build with a small dummy payload in tests; real build once), `test_models_pack_import` (checksum, resume-safe, Arabic path), `test_manifests_and_docker_contract` (winget/scoop/homebrew/AUR/compose versions, hashes, `127.0.0.1:8790:8790` in sync with pyproject), `test_bind_host_default_loopback` (native never binds 0.0.0.0; LAN Host header rejected), `test_readme_lists_every_method` (EN + AR list the same methods and asset names as the release script).
