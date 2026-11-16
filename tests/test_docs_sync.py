@@ -52,7 +52,7 @@ def test_readme_warnings_and_facts():
         assert "SmartScreen" in doc, f"{tag} README lacks SmartScreen"
         assert "127.0.0.1:8790" in doc, f"{tag} README lacks port contract"
         assert "install.ps1" in doc and "install.sh" in doc
-        assert "github.com/<owner>/safa" in doc
+        assert "github.com/ahmednajibe/safa" in doc
 
 
 def test_llms_links_sections():

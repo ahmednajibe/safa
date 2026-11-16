@@ -1,9 +1,8 @@
 # org.safa.Safa.yaml — Flatpak manifest (M10d wave 2, EXPERIMENTAL).
 #
 # Reverse-DNS id: org.safa.Safa — the project is called Safa and the
-# placeholder repo is github.com/<owner>/safa; io.github.<owner>.safa
-# cannot be rendered while the owner is a token, so org.safa is the
-# stable choice (it also matches the macOS CFBundleIdentifier).
+# repo is github.com/ahmednajibe/safa; org.safa is the stable choice
+# (it also matches the macOS CFBundleIdentifier).
 #
 # Design: the flatpak is a SANDBOXED BOOTSTRAP — it ships the small
 # safa-audio wheel + the uv binary. On first launch `safa setup`

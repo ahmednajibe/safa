@@ -131,6 +131,15 @@ def _prepend_ffmpeg_dir() -> None:
         os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
 
 
+# Dist-root files browsers request by name — a fixed allow-list (never
+# path-derived), so no generic root-file serving and no traversal.
+_DIST_ROOT_FILES = {
+    "favicon.ico": "image/x-icon",
+    "favicon.svg": "image/svg+xml",
+    "apple-touch-icon.png": "image/png",
+}
+
+
 def _mount_spa(app: FastAPI) -> None:
     """Serve the built React app; SPA fallback for every non-/api GET."""
     dist = FRONTEND_DIST
@@ -143,7 +152,11 @@ def _mount_spa(app: FastAPI) -> None:
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str) -> Response:
-        if path == "favicon.ico":
+        media = _DIST_ROOT_FILES.get(path)
+        if media is not None:
+            f = dist / path
+            if f.is_file():
+                return FileResponse(f, media_type=media)
             return Response(status_code=404)
         if path == "api" or path.startswith("api/"):
             return JSONResponse({"detail": "Not Found"}, status_code=404)

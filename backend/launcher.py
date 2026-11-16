@@ -135,6 +135,11 @@ _STRINGS = {
         "لم يبدأ التطبيق خلال {n} ثانية — شغّل سكربت الإعداد للإصلاح، أو "
         "راجع السجلات في data/logs.",
     ),
+    "shortcut_created": (
+        "Desktop shortcut created — delete it any time; we will not "
+        "recreate it.",
+        "تم إنشاء اختصار على سطح المكتب — احذفه متى شئت؛ لن نعيد إنشاءه.",
+    ),
 }
 
 
@@ -425,6 +430,18 @@ def open_browser(url: str) -> None:
         pass
 
 
+def _first_run_shortcut() -> None:
+    """First-run desktop shortcut (Windows only, dev/portable) — best
+    effort, runs once, and can never delay or break startup."""
+    try:
+        from backend.core import shortcut
+
+        if shortcut.maybe_create_desktop_shortcut(ROOT) == "created":
+            bilingual("shortcut_created")
+    except Exception:
+        pass
+
+
 # ---- start command ------------------------------------------------------------
 
 
@@ -534,6 +551,7 @@ def cmd_start(args) -> int:
         _kill_tree(proc)
         bilingual("health_timeout", n=HEALTH_TIMEOUT_S)
         return 7
+    _first_run_shortcut()
     if not args.no_browser:
         open_browser(base)
 

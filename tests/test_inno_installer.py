@@ -83,6 +83,21 @@ def test_kept_message_is_bilingual():
             f"{lang}DataKept" in COMMON
 
 
+def test_desktop_icon_checked_by_default_and_uses_exe_icon():
+    """R3 §4: the desktop-icon task is opt-out (no ``unchecked`` flag)
+    and the {autodesktop} entry renders with the Safa.exe icon."""
+    for iss in ("online.iss", "offline-cpu.iss", "offline-gpu.iss"):
+        text = (INNO / iss).read_text(encoding="utf-8")
+        task = [ln for ln in text.splitlines()
+                if '"desktopicon"' in ln]
+        assert task, iss
+        assert all("unchecked" not in ln for ln in task), iss
+        desk = [ln for ln in text.splitlines() if "{autodesktop}" in ln]
+        assert desk, iss
+        assert all('IconFilename: "{app}\\Safa.exe"' in ln
+                   for ln in desk), iss
+
+
 def test_each_variant_calls_write_installed_json():
     for iss in ("online.iss", "offline-cpu.iss", "offline-gpu.iss"):
         text = (INNO / iss).read_text(encoding="utf-8")

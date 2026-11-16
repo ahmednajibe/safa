@@ -26,7 +26,7 @@
   #define OutDir SourceDir
 #endif
 #ifndef RepoUrl
-  #define RepoUrl "https://github.com/<owner>/safa"
+  #define RepoUrl "https://github.com/ahmednajibe/safa"
 #endif
 #ifndef SliceSize
   #define SliceSize 1932735283
@@ -66,14 +66,14 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "ar"; MessagesFile: "compiler:Languages\Arabic.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
 Source: "{#SourceDir}\stage\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 Name: "{group}\Safa"; Filename: "{app}\Safa.exe"; IconFilename: "{app}\Safa.exe"
-Name: "{autodesktop}\Safa"; Filename: "{app}\Safa.exe"; Tasks: desktopicon
+Name: "{autodesktop}\Safa"; Filename: "{app}\Safa.exe"; IconFilename: "{app}\Safa.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\Safa.exe"; Description: "{cm:LaunchProgram,Safa}"; Flags: nowait postinstall skipifsilent unchecked

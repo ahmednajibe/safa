@@ -42,7 +42,7 @@ def test_install_ps1_params_and_placeholder():
     text = (ROOT / "install.ps1").read_text(encoding="utf-8")
     for p in ("$Variant", "$DataDir", "$InstallDir", "$Offline", "$DryRun"):
         assert p in text, f"install.ps1 lacks {p}"
-    assert "github.com/<owner>/safa" in text
+    assert "github.com/ahmednajibe/safa" in text
     # installs per-user, never Program Files
     assert "LOCALAPPDATA" in text
 
@@ -510,7 +510,9 @@ def test_install_ps1_failure_under_iex_keeps_session_alive(tmp_path):
     wrapper = tmp_path / "iex_wrapper.ps1"
     ps1 = str(ROOT / "install.ps1")
     wrapper.write_text(
-        "try { Get-Content -LiteralPath '" + ps1 + "' -Raw -Encoding UTF8 | iex }\n"
+        "$sb = [scriptblock]::Create("
+        "(Get-Content -LiteralPath '" + ps1 + "' -Raw -Encoding UTF8))\n"
+        "try { & $sb -Repo 'https://github.com/<owner>/safa' }\n"
         "catch { 'CAUGHT: ' + $_.Exception.Message }\n"
         "'STILL-ALIVE'\n",
         encoding="utf-8-sig",
@@ -520,7 +522,8 @@ def test_install_ps1_failure_under_iex_keeps_session_alive(tmp_path):
         capture_output=True, timeout=120,
     )
     out = cp.stdout.decode("utf-8", "replace")
-    # <owner> placeholder repo cannot resolve "latest" -> Stop-Safa path
+    # an explicit <owner> -Repo keeps the placeholder guard live so
+    # "latest" never reaches the network -> Stop-Safa path
     assert "CAUGHT: Safa install failed" in out, out
     assert "STILL-ALIVE" in out, out
 
@@ -529,7 +532,8 @@ def test_install_ps1_failure_under_iex_keeps_session_alive(tmp_path):
 def test_install_ps1_failure_as_file_exits_nonzero():
     cp = subprocess.run(
         [PS, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-         str(ROOT / "install.ps1")],
+         str(ROOT / "install.ps1"),
+         "-Repo", "https://github.com/<owner>/safa"],
         capture_output=True, timeout=120,
     )
     assert cp.returncode == 1

@@ -1,14 +1,14 @@
 # release-info.toml — single source of truth for release metadata (M10c).
 # The app VERSION still lives in pyproject.toml only; this file carries
 # everything else the release pipeline, installers, manifests and docs
-# share so names/URLs can never drift. `<owner>` is the placeholder the
-# orchestrator fills in before publishing — grep for it to confirm.
+# share so names/URLs can never drift. repo_url is the real public
+# GitHub repo the orchestrator publishes under.
 [app]
 name = "Safa"
 name_ar = "صفا"
 id = "safa"
 title = "Safa (صفا) — clean audio and video on your own computer"
-repo_url = "https://github.com/<owner>/safa"
+repo_url = "https://github.com/ahmednajibe/safa"
 port = 8790
 
 # Minimum NVIDIA driver for the cu124 variant (CUDA 12.4).

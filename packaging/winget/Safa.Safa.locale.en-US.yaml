@@ -2,9 +2,9 @@ PackageIdentifier: Safa.Safa
 PackageVersion: "0.1.0"
 PackageLocale: en-US
 Publisher: Safa
-PublisherUrl: https://github.com/<owner>/safa
+PublisherUrl: https://github.com/ahmednajibe/safa
 PackageName: Safa
-PackageUrl: https://github.com/<owner>/safa
+PackageUrl: https://github.com/ahmednajibe/safa
 License: MIT
 ShortDescription: Clean audio and video recordings on your own computer.
 Description: >-

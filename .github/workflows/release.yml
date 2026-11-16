@@ -223,8 +223,8 @@ jobs:
 
       # --- PyPI publish (trusted publishing) — DISABLED ON PURPOSE --------
       # The orchestrator enables this step only after the user approves a
-      # real PyPI project name and replaces the <owner> placeholder in
-      # release-info.toml. To enable: add `permissions: id-token: write`
+      # real PyPI project name (the repo owner in release-info.toml is
+      # already set). To enable: add `permissions: id-token: write`
       # to this job, then uncomment:
       # - name: publish to PyPI (trusted publishing)
       #   uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3

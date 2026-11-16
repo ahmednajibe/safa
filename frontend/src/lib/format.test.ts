@@ -20,11 +20,11 @@ describe("truncateMiddle", () => {
   });
 
   it("middle-truncates long paths with an ellipsis", () => {
-    const p = "C:\\Users\\ahmed\\AppData\\Local\\Temp\\ss-e2e-8n3f1nwb\\autosave\\file.mp4";
+    const p = "C:\\Users\\user\\AppData\\Local\\Temp\\ss-e2e-8n3f1nwb\\autosave\\file.mp4";
     const s = truncateMiddle(p, 42);
     expect(s.length).toBeLessThanOrEqual(43);
     expect(s).toContain("…");
-    expect(s.startsWith("C:\\Users\\ahmed")).toBe(true);
+    expect(s.startsWith("C:\\Users\\user")).toBe(true);
     expect(s.endsWith("file.mp4")).toBe(true);
   });
 });

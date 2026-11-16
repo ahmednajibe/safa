@@ -1,16 +1,16 @@
 # AUR PKGBUILD — Safa (beta). Builds from the linux-x64-cpu tarball.
 # No cuda tarball ships (>2 GiB cap): NVIDIA users run
 # `safa setup --device cuda` (or install.sh --variant cuda) afterwards.
-# Replace <owner>/<sha256> at release; names come from release-info.toml.
+# Replace <sha256> at release; names come from release-info.toml.
 pkgname=safa
 pkgver=0.1.0
 pkgrel=1
 pkgdesc="Clean audio and video recordings locally — noise removal, transcription (صفا)"
 arch=('x86_64')
-url="https://github.com/<owner>/safa"
+url="https://github.com/ahmednajibe/safa"
 license=('MIT')
 depends=('ffmpeg')
-source=("Safa-${pkgver}-linux-x64-cpu.tar.gz::https://github.com/<owner>/safa/releases/download/v${pkgver}/Safa-${pkgver}-linux-x64-cpu.tar.gz")
+source=("Safa-${pkgver}-linux-x64-cpu.tar.gz::https://github.com/ahmednajibe/safa/releases/download/v${pkgver}/Safa-${pkgver}-linux-x64-cpu.tar.gz")
 sha256sums=('<sha256-linux-cpu>')
 
 package() {

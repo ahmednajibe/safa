@@ -114,7 +114,7 @@
 <!-- method:win-one-liner -->
 
 ```powershell
-irm https://github.com/<owner>/safa/releases/latest/download/install.ps1 | iex
+irm https://github.com/ahmednajibe/safa/releases/latest/download/install.ps1 | iex
 ```
 
 ينزّل السكربت `SHA256SUMS.txt` مع `Safa-<ver>-win-x64-setup.exe` ويتحقق
@@ -126,7 +126,7 @@ irm https://github.com/<owner>/safa/releases/latest/download/install.ps1 | iex
 لتمرير معلمات عبر الأمر الواحد:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/<owner>/safa/releases/latest/download/install.ps1))) -Variant gpu
+& ([scriptblock]::Create((irm https://github.com/ahmednajibe/safa/releases/latest/download/install.ps1))) -Variant gpu
 ```
 
 معلمات اختيارية: `-Variant cpu|gpu`، `-DataDir D:\SafaData`،
@@ -137,7 +137,7 @@ irm https://github.com/<owner>/safa/releases/latest/download/install.ps1 | iex
 البديل الأكثر أمانًا — *نزّل ← افحص ← شغّل*:
 
 ```powershell
-iwr https://github.com/<owner>/safa/releases/latest/download/install.ps1 -OutFile install.ps1
+iwr https://github.com/ahmednajibe/safa/releases/latest/download/install.ps1 -OutFile install.ps1
 notepad install.ps1   # اقرأ السكربت
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
@@ -155,7 +155,7 @@ winget install --id Safa.Safa
 <!-- method:win-scoop -->
 
 ```powershell
-scoop install https://github.com/<owner>/safa/raw/main/packaging/scoop/safa.json
+scoop install https://github.com/ahmednajibe/safa/raw/main/packaging/scoop/safa.json
 ```
 
 يستخدم ملف CPU المحمول؛ لنسخة GPU استخدم الأرشيف المجزأ أعلاه (Scoop لا
@@ -179,7 +179,7 @@ choco install safa --params "/Variant:gpu /DataDir:D:\SafaData"
 <!-- method:win-source -->
 
 ```powershell
-git clone https://github.com/<owner>/safa.git; cd safa
+git clone https://github.com/ahmednajibe/safa.git; cd safa
 uv sync --extra cu124   # أو: --extra cpu
 npm --prefix frontend ci; npm --prefix frontend run build
 .\start.bat
@@ -195,7 +195,7 @@ npm --prefix frontend ci; npm --prefix frontend run build
 <!-- method:mac-install-sh -->
 
 ```sh
-curl -fsSL https://github.com/<owner>/safa/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/ahmednajibe/safa/releases/latest/download/install.sh | sh
 ```
 
 يثبّت في `~/Applications/Safa`، البيانات في
@@ -220,7 +220,7 @@ curl -fsSL https://github.com/<owner>/safa/releases/latest/download/install.sh |
 <!-- method:mac-brew -->
 
 ```sh
-brew install --formula https://github.com/<owner>/safa/raw/main/packaging/homebrew/safa.rb
+brew install --formula https://github.com/ahmednajibe/safa/raw/main/packaging/homebrew/safa.rb
 safa
 ```
 
@@ -234,7 +234,7 @@ safa
 <!-- method:mac-source -->
 
 ```sh
-git clone https://github.com/<owner>/safa.git; cd safa
+git clone https://github.com/ahmednajibe/safa.git; cd safa
 uv sync --extra cpu     # لا توجد نسخة CUDA على ماك
 npm --prefix frontend ci; npm --prefix frontend run build
 ./start.command        # أو ./start.sh
@@ -249,7 +249,7 @@ npm --prefix frontend ci; npm --prefix frontend run build
 <!-- method:linux-install-sh-cuda -->
 
 ```sh
-curl -fsSL https://github.com/<owner>/safa/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/ahmednajibe/safa/releases/latest/download/install.sh | sh
 curl -fsSL .../install.sh | sh -s -- --variant cuda   # NVIDIA
 ```
 
@@ -344,7 +344,7 @@ python/bin/python3 --system -r requirements-cu124.txt --require-hashes
 <!-- method:linux-source -->
 
 ```sh
-git clone https://github.com/<owner>/safa.git; cd safa
+git clone https://github.com/ahmednajibe/safa.git; cd safa
 uv sync --extra cu124   # NVIDIA؛ وإلا --extra cpu
 npm --prefix frontend ci; npm --prefix frontend run build
 ./start.sh

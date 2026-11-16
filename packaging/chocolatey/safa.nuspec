@@ -4,7 +4,7 @@
      runtime is provisioned by the installer itself via uv.
      Tokens {{VERSION}} {{REPO}} {{SETUP_ASSET}} {{SHA256}} are filled by
      render_choco.py from release-info.toml — the committed file keeps
-     the <owner>/<sha256> placeholders like the other manifests. -->
+     the {{SHA256}}-style placeholders like the other manifests. -->
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>safa</id>

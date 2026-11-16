@@ -24,8 +24,10 @@ def test_version_comes_from_pyproject():
     assert re.fullmatch(r"\d+\.\d+\.\d+", ri.VERSION)
 
 
-def test_repo_url_is_single_placeholder():
-    assert ri.REPO_URL == "https://github.com/<owner>/safa"
+def test_repo_url_is_the_real_public_repo():
+    """release-info.toml carries the real owner — the <owner> placeholder
+    only survives as the install.ps1 guard pattern."""
+    assert ri.REPO_URL == "https://github.com/ahmednajibe/safa"
 
 
 def test_every_asset_renders_with_version():

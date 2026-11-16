@@ -1,9 +1,9 @@
 # Homebrew formula — beta macOS (Apple Silicon) tarball install.
-# Replace <owner>/<sha256> at release; asset names come from release-info.toml.
+# Replace <sha256-macos> at release; asset names come from release-info.toml.
 class Safa < Formula
   desc "Clean audio and video recordings locally (صفا)"
-  homepage "https://github.com/<owner>/safa"
-  url "https://github.com/<owner>/safa/releases/download/v0.1.0/Safa-0.1.0-macos-arm64.tar.gz"
+  homepage "https://github.com/ahmednajibe/safa"
+  url "https://github.com/ahmednajibe/safa/releases/download/v0.1.0/Safa-0.1.0-macos-arm64.tar.gz"
   sha256 "<sha256-macos>"
   license "MIT"
 

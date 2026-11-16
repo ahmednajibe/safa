@@ -2,7 +2,7 @@
     "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
     "version": "0.1.0",
     "description": "Safa (صفا): clean audio/video recordings locally - noise, clicks, reverb, transcription.",
-    "homepage": "https://github.com/<owner>/safa",
+    "homepage": "https://github.com/ahmednajibe/safa",
     "license": "MIT",
     "notes": [
         "GPU variant: download Safa-<ver>-win-x64-gpu-portable.7z.* manually",
@@ -10,7 +10,7 @@
     ],
     "architecture": {
         "64bit": {
-            "url": "https://github.com/<owner>/safa/releases/download/v0.1.0/Safa-0.1.0-win-x64-cpu-portable.zip",
+            "url": "https://github.com/ahmednajibe/safa/releases/download/v0.1.0/Safa-0.1.0-win-x64-cpu-portable.zip",
             "hash": "<sha256-cpu-portable>"
         }
     },
@@ -23,12 +23,12 @@
         ]
     ],
     "checkver": {
-        "github": "https://github.com/<owner>/safa"
+        "github": "https://github.com/ahmednajibe/safa"
     },
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/<owner>/safa/releases/download/v$version/Safa-$version-win-x64-cpu-portable.zip"
+                "url": "https://github.com/ahmednajibe/safa/releases/download/v$version/Safa-$version-win-x64-cpu-portable.zip"
             }
         }
     }

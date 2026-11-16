@@ -42,7 +42,7 @@ done
 VER="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
 VER="${VER:-0.1.0}"
 REPO="$(sed -n 's/^repo_url = "\(.*\)"/\1/p' release-info.toml | head -1)"
-REPO="${REPO:-https://github.com/<owner>/safa}"
+REPO="${REPO:-https://github.com/ahmednajibe/safa}"
 KEY="linux-x64-$VARIANT"
 NAME="Safa-$VER-$KEY"
 TARBALL="dist_pkg/$NAME.tar.gz"

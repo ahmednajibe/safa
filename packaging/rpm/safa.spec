@@ -17,7 +17,7 @@ Release:        1%{?dist}
 Summary:        Clean audio and video on your own computer
 
 License:        MIT
-URL:            https://github.com/<owner>/safa
+URL:            https://github.com/ahmednajibe/safa
 Source0:        Safa-%{safaver}-linux-x64-%{safavariant}.tar.gz
 Source1:        safa
 Source2:        safa.desktop
@@ -78,5 +78,5 @@ fi
 exit 0
 
 %changelog
-* Wed Nov 19 2025 Safa <https://github.com/<owner>/safa> - 0.1.0-1
+* Wed Nov 19 2025 Safa <https://github.com/ahmednajibe/safa> - 0.1.0-1
 - first packaged release (M10d wave 2)

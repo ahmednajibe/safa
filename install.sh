@@ -1,7 +1,7 @@
 #!/bin/sh
 # install.sh — Safa one-line installer for macOS + Linux (M10c §9.9/13).
 #
-#   curl -fsSL https://github.com/<owner>/safa/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/ahmednajibe/safa/releases/latest/download/install.sh | sh
 #   ./install.sh --variant cuda --dir ~/Apps/Safa --data-dir ~/SafaData
 #   ./install.sh --from-dir ./downloads   # use local tarball + SHA256SUMS.txt
 #   ./install.sh --dry-run
@@ -40,7 +40,7 @@ sha256_file() {
 }
 
 APP="Safa"
-REPO="https://github.com/<owner>/safa"
+REPO="https://github.com/ahmednajibe/safa"
 VERSION="latest"
 VARIANT="auto"
 DIR=""

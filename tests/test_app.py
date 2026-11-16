@@ -1,4 +1,5 @@
 """Task 1/5 tests: SQLite schema, app factory, SPA mount."""
+import contextlib
 import sqlite3
 
 import pytest
@@ -123,6 +124,68 @@ def test_api_404_is_json(tmp_path):
     r = _client(tmp_path).get("/api/nope")
     assert r.status_code == 404
     assert r.headers["content-type"].startswith("application/json")
+
+
+# ---- favicon allow-list (R3 §2) -------------------------------------------------
+
+
+@contextlib.contextmanager
+def _client_with_dist(tmp_path, files: dict[str, bytes]):
+    """App whose FRONTEND_DIST is a fake dir holding only ``files``."""
+    import backend.main as main_mod
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text('<html><div id="root"></div></html>')
+    for name, blob in files.items():
+        (dist / name).write_bytes(blob)
+    old = main_mod.FRONTEND_DIST
+    main_mod.FRONTEND_DIST = dist
+    try:
+        app = create_app(
+            Settings(
+                data_dir=tmp_path / "d", db_path=tmp_path / "d" / "app.db"
+            )
+        )
+        yield make_client(app)
+    finally:
+        main_mod.FRONTEND_DIST = old
+
+
+def test_favicon_ico_and_svg_served(tmp_path):
+    files = {
+        "favicon.ico": b"\x00\x00\x01\x00fake",
+        "favicon.svg": b"<svg></svg>",
+        "apple-touch-icon.png": b"\x89PNG\r\n\x1a\nfake",
+    }
+    with _client_with_dist(tmp_path, files) as c:
+        r = c.get("/favicon.ico")
+        assert r.status_code == 200 and r.content == files["favicon.ico"]
+        assert r.headers["content-type"] in (
+            "image/x-icon", "image/vnd.microsoft.icon")
+        r = c.get("/favicon.svg")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("image/svg")
+        r = c.get("/apple-touch-icon.png")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("image/png")
+
+
+def test_favicon_missing_file_still_404(tmp_path):
+    with _client_with_dist(tmp_path, {}) as c:
+        for p in ("/favicon.ico", "/favicon.svg", "/apple-touch-icon.png"):
+            assert c.get(p).status_code == 404, p
+
+
+def test_root_files_do_not_leak(tmp_path):
+    """No generic root-file serving: repo files and traversal attempts
+    get the SPA index (or 404), never file contents."""
+    with _client_with_dist(tmp_path, {}) as c:
+        for p in ("/pyproject.toml", "/..%2fpyproject.toml",
+                  "/%2e%2e/pyproject.toml"):
+            r = c.get(p)
+            assert r.status_code in (200, 404), (p, r.status_code)
+            assert b"[project]" not in r.content and b"name = " not in r.content
 
 
 def test_missing_dist_fallback(tmp_path, monkeypatch):

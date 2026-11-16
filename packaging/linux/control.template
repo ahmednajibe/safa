@@ -4,8 +4,8 @@ Section: sound
 Priority: optional
 Architecture: amd64
 Installed-Size: {{SIZE_KB}}
-Maintainer: Safa <https://github.com/<owner>/safa>
-Homepage: https://github.com/<owner>/safa
+Maintainer: Safa <https://github.com/ahmednajibe/safa>
+Homepage: https://github.com/ahmednajibe/safa
 Conflicts: {{CONFLICT}}
 Description: Clean audio and video on your own computer
  Safa cuts silence, removes noise, levels loudness, separates voice

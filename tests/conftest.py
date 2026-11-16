@@ -1,4 +1,5 @@
 """Shared test helpers: generated fixtures on demand, real-recording skips."""
+import os
 import sys
 from pathlib import Path
 
@@ -23,6 +24,19 @@ def generated_fixtures():
 
         make_fixtures.main()
     return FIXTURES_DIR
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_desktop_shortcut():
+    """Belt-and-braces: no test may ever create a real Desktop shortcut
+    (backend.core.shortcut honours SAFA_NO_SHORTCUT=1)."""
+    prev = os.environ.get("SAFA_NO_SHORTCUT")
+    os.environ["SAFA_NO_SHORTCUT"] = "1"
+    yield
+    if prev is None:
+        os.environ.pop("SAFA_NO_SHORTCUT", None)
+    else:
+        os.environ["SAFA_NO_SHORTCUT"] = prev
 
 
 @pytest.fixture(scope="session")

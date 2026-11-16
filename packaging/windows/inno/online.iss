@@ -23,7 +23,7 @@
   #define OutDir SourceDir
 #endif
 #ifndef RepoUrl
-  #define RepoUrl "https://github.com/<owner>/safa"
+  #define RepoUrl "https://github.com/ahmednajibe/safa"
 #endif
 #ifndef DriverMin
   #define DriverMin 551
@@ -60,7 +60,7 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "ar"; MessagesFile: "compiler:Languages\Arabic.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
 ; Payload staged by build-installer.ps1 (small — no python/, no models/).
@@ -70,7 +70,7 @@ Source: "{#SourceDir}\launcher\Safa.exe"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{group}\Safa"; Filename: "{app}\Safa.exe"; IconFilename: "{app}\Safa.exe"
 Name: "{group}\Safa (صفا) README"; Filename: "{app}\README.md"
-Name: "{autodesktop}\Safa"; Filename: "{app}\Safa.exe"; Tasks: desktopicon
+Name: "{autodesktop}\Safa"; Filename: "{app}\Safa.exe"; IconFilename: "{app}\Safa.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\Safa.exe"; Description: "{cm:LaunchProgram,Safa}"; Flags: nowait postinstall skipifsilent unchecked

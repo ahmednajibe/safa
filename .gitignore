@@ -9,6 +9,7 @@ node_modules/
 frontend/dist/
 tests/fixtures/generated/
 *.err.txt
+*.db
 .orchestrator/
 .superpowers/
 tests/fixtures/real/

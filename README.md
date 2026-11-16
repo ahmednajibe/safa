@@ -117,7 +117,7 @@ missing parts are refused with a bilingual message.
 <!-- method:win-one-liner -->
 
 ```powershell
-irm https://github.com/<owner>/safa/releases/latest/download/install.ps1 | iex
+irm https://github.com/ahmednajibe/safa/releases/latest/download/install.ps1 | iex
 ```
 
 The script downloads `SHA256SUMS.txt` plus `Safa-<ver>-win-x64-setup.exe`,
@@ -130,7 +130,7 @@ asset name carries the version; pass `-Version` to pin one explicitly.
 To pass parameters through the one-liner:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/<owner>/safa/releases/latest/download/install.ps1))) -Variant gpu
+& ([scriptblock]::Create((irm https://github.com/ahmednajibe/safa/releases/latest/download/install.ps1))) -Variant gpu
 ```
 
 Optional parameters: `-Variant cpu|gpu`, `-DataDir D:\SafaData`,
@@ -141,7 +141,7 @@ installer — online, cpu-offline or gpu-offline — and verifies it when a
 Safer *download → inspect → run* alternative:
 
 ```powershell
-iwr https://github.com/<owner>/safa/releases/latest/download/install.ps1 -OutFile install.ps1
+iwr https://github.com/ahmednajibe/safa/releases/latest/download/install.ps1 -OutFile install.ps1
 notepad install.ps1   # read it
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
@@ -159,7 +159,7 @@ Wraps the online installer (same download size and SmartScreen note).
 <!-- method:win-scoop -->
 
 ```powershell
-scoop install https://github.com/<owner>/safa/raw/main/packaging/scoop/safa.json
+scoop install https://github.com/ahmednajibe/safa/raw/main/packaging/scoop/safa.json
 ```
 
 Uses the CPU portable zip; for the GPU variant use the split archive
@@ -184,7 +184,7 @@ kept. Unsigned → same SmartScreen note as the online installer.
 <!-- method:win-source -->
 
 ```powershell
-git clone https://github.com/<owner>/safa.git; cd safa
+git clone https://github.com/ahmednajibe/safa.git; cd safa
 uv sync --extra cu124   # or: --extra cpu
 npm --prefix frontend ci; npm --prefix frontend run build
 .\start.bat
@@ -200,7 +200,7 @@ Needs `uv` and Node.js. `Safa-<ver>-source.zip` is the same tree.
 <!-- method:mac-install-sh -->
 
 ```sh
-curl -fsSL https://github.com/<owner>/safa/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/ahmednajibe/safa/releases/latest/download/install.sh | sh
 ```
 
 Installs into `~/Applications/Safa`, data into
@@ -227,7 +227,7 @@ and ffmpeg are inside the bundle — no internet needed except the
 <!-- method:mac-brew -->
 
 ```sh
-brew install --formula https://github.com/<owner>/safa/raw/main/packaging/homebrew/safa.rb
+brew install --formula https://github.com/ahmednajibe/safa/raw/main/packaging/homebrew/safa.rb
 safa
 ```
 
@@ -241,7 +241,7 @@ safa
 <!-- method:mac-source -->
 
 ```sh
-git clone https://github.com/<owner>/safa.git; cd safa
+git clone https://github.com/ahmednajibe/safa.git; cd safa
 uv sync --extra cpu     # no CUDA builds on macOS
 npm --prefix frontend ci; npm --prefix frontend run build
 ./start.command        # or ./start.sh
@@ -256,7 +256,7 @@ npm --prefix frontend ci; npm --prefix frontend run build
 <!-- method:linux-install-sh-cuda -->
 
 ```sh
-curl -fsSL https://github.com/<owner>/safa/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/ahmednajibe/safa/releases/latest/download/install.sh | sh
 curl -fsSL .../install.sh | sh -s -- --variant cuda   # NVIDIA
 ```
 
@@ -356,7 +356,7 @@ unsafe-best-match` using the bundled `tools/uv`.
 <!-- method:linux-source -->
 
 ```sh
-git clone https://github.com/<owner>/safa.git; cd safa
+git clone https://github.com/ahmednajibe/safa.git; cd safa
 uv sync --extra cu124   # NVIDIA; otherwise --extra cpu
 npm --prefix frontend ci; npm --prefix frontend run build
 ./start.sh

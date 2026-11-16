@@ -22,7 +22,7 @@ param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\Safa'),
     [string]$DataDir = (Join-Path $env:LOCALAPPDATA 'Safa'),
     [string]$Version = 'latest',
-    [string]$Repo = 'https://github.com/<owner>/safa',
+    [string]$Repo = 'https://github.com/ahmednajibe/safa',
     [switch]$Offline,
     [string]$SetupExe = '',
     [switch]$DryRun

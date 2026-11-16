@@ -28,10 +28,10 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/<owner>/safa"
-Documentation = "https://github.com/<owner>/safa#readme"
-Source = "https://github.com/<owner>/safa"
-Issues = "https://github.com/<owner>/safa/issues"
+Homepage = "https://github.com/ahmednajibe/safa"
+Documentation = "https://github.com/ahmednajibe/safa#readme"
+Source = "https://github.com/ahmednajibe/safa"
+Issues = "https://github.com/ahmednajibe/safa/issues"
 
 [project.scripts]
 safa = "safa_bootstrap.cli:main"
