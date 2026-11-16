@@ -27,3 +27,13 @@ Each milestone gets a detailed task plan in `docs/superpowers/plans/` written ri
 | R2 | **Final full review** (user request, after M10 = everything finished): graphify map of the whole project (backend + frontend + tests + scripts) → Claude line-by-line + test-quality review + Argon (+ Astra if quota) independent review → one SWE fix round → final end-to-end run on the user's real recordings | all findings fixed or explicitly accepted; full suite green; user listens to final outputs |
 
 UI design direction is decided in a dedicated design round (Claude + Astra + Argon, using design skills) and written to `docs/UI_DESIGN.md` before M9a.
+
+## Status (2026-11-16)
+
+All milestones M1–M10d and R2 are done and committed. The last commit is `799d921`, the R2 fix round.
+
+- **Tests:** 860 passed, 2 xfailed. The slow suite has 13 passed and 1 skipped (the skip needs a built package).
+- **Frontend:** vitest has 101 passed.
+- **Mutation probe:** all 14 mutations killed.
+- **Not tested:** the Linux and macOS packages (deb, rpm, AppImage, dmg and flatpak) are checked by static and dry-run tests only, because no runner is available here.
+- **Not published:** nothing has gone out yet. Publishing needs the user's approval and a real `<owner>` in `release-info.toml`.
