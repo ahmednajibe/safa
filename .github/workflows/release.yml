@@ -78,6 +78,22 @@ jobs:
               -Certificate $cert -TimestampServer "http://timestamp.digicert.com" | Out-Null
           }
 
+      - name: fetch ffmpeg 7.1.1 into tools/ffmpeg (sha256-pinned)
+        shell: pwsh
+        # tools/ffmpeg is gitignored — same pinned build scripts/setup.ps1 uses.
+        run: |
+          $url = "https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip"
+          $want = "04861d3339c5ebe38b56c19a15cf2c0cc97f5de4fa8910e4d47e5e6404e4a2d4"
+          New-Item -ItemType Directory -Force data\tmp\ffdl, tools\ffmpeg | Out-Null
+          Invoke-WebRequest $url -OutFile data\tmp\ffdl\ff.zip
+          $got = (Get-FileHash data\tmp\ffdl\ff.zip -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $want) { throw "ffmpeg zip sha256 mismatch: $got" }
+          Expand-Archive data\tmp\ffdl\ff.zip data\tmp\ffdl\x
+          $inner = Get-ChildItem data\tmp\ffdl\x -Directory | Select-Object -First 1
+          Copy-Item (Join-Path $inner.FullName "bin") tools\ffmpeg\bin -Recurse -Force
+          Remove-Item -Recurse -Force data\tmp\ffdl
+          tools\ffmpeg\bin\ffmpeg.exe -version | Select-Object -First 1
+
       - name: project env (release_info / model packs / smoke test)
         shell: pwsh
         # package scripts call `uv run --no-sync` — the venv must exist.

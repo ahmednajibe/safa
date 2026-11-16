@@ -2,6 +2,8 @@
 <!-- org.safa.Safa.metainfo.xml — AppStream metadata (M10d, experimental). -->
 <component type="desktop-application">
   <id>org.safa.Safa</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
   <name>Safa</name>
   <summary>Clean audio and video on your own computer</summary>
   <description>
@@ -13,9 +15,9 @@
     <category>AudioVideo</category>
     <category>Audio</category>
   </categories>
-  <url type="homepage">https://github.com/&lt;owner&gt;/safa</url>
+  <url type="homepage">https://github.com/ahmednajibe/safa</url>
   <provides><binary>safa</binary></provides>
   <releases>
-    <release version="0.1.0" date="2026-01-01"/>
+    <release version="0.1.0" date="2026-11-17"/>
   </releases>
 </component>

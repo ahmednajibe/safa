@@ -15,6 +15,13 @@
 # build-time rpath (/tools/deps/lib); harmless at runtime, but rpmbuild's
 # check-rpaths rejects it. The payload is a self-contained /opt tree.
 %global __brp_check_rpaths %{nil}
+# Same reason: no post-install mangling of a vendored tree (shebang
+# rewrites, bytecompile, strip, debuginfo) and no auto Requires/Provides
+# scraped from the bundled .so files.
+%global __brp_mangle_shebangs %{nil}
+%global __os_install_post %{nil}
+%global debug_package %{nil}
+AutoReqProv:    no
 
 Name:           %{safapkg}
 Version:        %{safaver}
