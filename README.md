@@ -165,6 +165,21 @@ scoop install https://github.com/<owner>/safa/raw/main/packaging/scoop/safa.json
 Uses the CPU portable zip; for the GPU variant use the split archive
 above instead (Scoop can't assemble split parts).
 
+### Chocolatey
+<!-- method:win-choco -->
+
+```powershell
+choco install safa --params "/Variant:gpu /DataDir:D:\SafaData"
+```
+
+Wraps the online installer silently — same **~50 MB** setup.exe +
+runtime download during install (internet needed). `--params` maps to
+Inno arguments: `/Variant:cpu|gpu|auto` (default `auto` — installer
+detects the NVIDIA driver), `/DataDir:<dir>` for
+jobs/outputs/models, `/InstallDir:<dir>` for the app. Uninstall via
+`choco uninstall safa` runs the Inno uninstaller — your data folder is
+kept. Unsigned → same SmartScreen note as the online installer.
+
 ### From source (Windows)
 <!-- method:win-source -->
 
@@ -194,6 +209,19 @@ Desktop. Gatekeeper quarantine is removed from the app's own folder
 only. ~0.5 GB tarball — its SHA-256 is verified against the release
 `SHA256SUMS.txt` before extracting (`--from-dir <dir>` installs from a
 local tarball the same way).
+
+### .dmg (unsigned .app)
+<!-- method:mac-dmg -->
+
+`Safa-<ver>-macos-arm64.dmg` — **~0.7 GB**, no installer: open it and
+drag **Safa.app** wherever you like (e.g. `/Applications`). The runtime
+and ffmpeg are inside the bundle — no internet needed except the
+~600 MB first-run model download.
+
+- **Unsigned**: first launch via **Right-click → Open** — Gatekeeper
+  asks once. The build never strips quarantine for you; doing it
+  manually (`xattr -dr com.apple.quarantine Safa.app`) is your choice.
+- Data lives in `~/Library/Application Support/Safa`.
 
 ### Homebrew
 <!-- method:mac-brew -->
@@ -238,6 +266,63 @@ entry. `--variant cpu` (default) or `--variant cuda`. The tarball's
 SHA-256 is verified against the release `SHA256SUMS.txt` before
 extracting.
 
+### .deb (Debian / Ubuntu / Mint)
+<!-- method:linux-deb-cpu -->
+<!-- method:linux-deb-cuda -->
+
+```sh
+sudo apt install ./Safa-<ver>-linux-x64-cpu.deb    # or -cuda.deb
+```
+
+Installs the full runtime to `/opt/safa` with a `safa` command and a
+menu entry. **~0.8 GB** (CPU); the CUDA package wraps the ~4.9 GB GPU
+payload — over GitHub's 2 GiB file limit, so if it is missing from the
+release use `install.sh --variant cuda` instead. ffmpeg is bundled;
+data lives in `~/.local/share/safa-data` and survives `apt purge`.
+No internet needed except first-run models (~600 MB).
+
+### .rpm (Fedora)
+<!-- method:linux-rpm-cpu -->
+<!-- method:linux-rpm-cuda -->
+
+```sh
+sudo dnf install ./Safa-<ver>-linux-x64-cpu.rpm    # or -cuda.rpm
+```
+
+Same layout and rules as the .deb. `safa` and `safa-cuda` conflict —
+install one variant at a time.
+
+### AppImage (CPU)
+<!-- method:linux-appimage -->
+
+```sh
+chmod +x Safa-<ver>-linux-x64.AppImage
+./Safa-<ver>-linux-x64.AppImage                          # needs FUSE
+./Safa-<ver>-linux-x64.AppImage --appimage-extract-and-run   # no FUSE
+```
+
+**~0.8 GB**, nothing installed — data goes to
+`${XDG_DATA_HOME:-~/.local/share}/safa-data` (`APPIMAGE_DATA_DIR`
+overrides). CPU only: a CUDA AppImage would be ~4.9 GB, over the
+2 GiB release-asset limit — use the .deb/.rpm.
+
+### Flatpak (experimental)
+<!-- method:linux-flatpak -->
+
+```sh
+flatpak install ./Safa-<ver>-linux-x64.flatpak
+```
+
+**Experimental** — not on Flathub; the bundle ships on the release page
+only when its CI build succeeds. It is a **~10 MB** sandboxed
+bootstrap: on first launch it downloads the runtime (~2 GB,
+hash-verified) and then the models (~600 MB) into
+`~/.var/app/org.safa.Safa/data/safa-data` — internet needed once.
+Sandbox permissions: `--share=network` (localhost UI + those
+downloads), `--filesystem=home` (read/write your media files),
+`--device=dri` (optional GPU). `org.safa.Safa.yaml` (the manifest) is
+published next to it.
+
 ### AUR (Arch)
 <!-- method:linux-aur -->
 
@@ -265,6 +350,28 @@ npm --prefix frontend ci; npm --prefix frontend run build
 ```
 
 Needs system ffmpeg (`apt install ffmpeg`).
+
+---
+
+## Install — Python (any OS)
+<!-- method:pypi -->
+
+```sh
+pip install safa-audio        # or: uv tool install safa-audio / pipx install safa-audio
+safa setup --device auto      # cpu|cuda — downloads ~2 GB (cpu) / ~5 GB (cuda)
+safa                          # launches http://127.0.0.1:8790
+safa models import <pack.zip> # offline model pack
+```
+
+A **~1.5 MB** bootstrap wheel: the `safa` command provisions the real
+runtime (Python 3.11 + hash-locked deps + ffmpeg) under your user-data
+dir — `%LOCALAPPDATA%\Safa`, `~/Library/Application Support/Safa` or
+`${XDG_DATA_HOME:-~/.local/share}/safa-data` (`SOUND_SYSTEM_DATA_DIR`
+overrides). Internet needed for `setup` and first-run models
+(~600 MB); fully offline afterwards. Needs Python 3.11+ (3.11 exactly
+when `uv` is not on PATH). On macOS run `brew install ffmpeg` first.
+The same wheel also ships on the release page as
+`safa_audio-<ver>-py3-none-any.whl`.
 
 ---
 

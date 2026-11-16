@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Safa
+Name[ar]=صفا
+GenericName=Audio/Video cleaner
+Comment=Clean audio and video on your own computer — silence cutting, denoise, loudness, separation, subtitles
+Comment[ar]=نظّف الصوت والفيديو على جهازك — قص الصمت وإزالة الضجيج وتوحيد الصوت وفصل الصوت عن الموسيقى وكتابة الترجمة
+Exec=safa
+Icon=safa
+Terminal=false
+Categories=AudioVideo;Audio;Video;
+Keywords=audio;video;denoise;subtitles;safa
+StartupNotify=true

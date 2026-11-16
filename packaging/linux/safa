@@ -1,0 +1,13 @@
+#!/bin/sh
+# /usr/bin/safa — wrapper for the .deb/.rpm system package (M10d).
+# /opt/safa is root-owned, so the data dir must live in the user XDG
+# dir. backend/core/paths.py: SOUND_SYSTEM_DATA_DIR always wins, giving
+# installed-mode semantics without installed.json. Nothing is written
+# to the app dir; models download under <data>/models on first run.
+set -u
+: "${XDG_DATA_HOME:=$HOME/.local/share}"
+export SOUND_SYSTEM_DATA_DIR="$XDG_DATA_HOME/safa-data"
+export PYTHONUTF8=1
+mkdir -p "$SOUND_SYSTEM_DATA_DIR"
+cd /opt/safa || exit 4
+exec /opt/safa/python/bin/python3 -m backend.launcher "$@"

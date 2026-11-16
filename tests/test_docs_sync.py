@@ -19,11 +19,13 @@ METHOD_RE = re.compile(r"<!--\s*method:([a-z0-9-]+)\s*-->")
 REQUIRED_METHODS = [
     "win-online", "win-offline-cpu", "win-offline-gpu",
     "win-portable-cpu", "win-portable-gpu", "win-one-liner",
-    "win-winget", "win-scoop", "win-source",
-    "mac-install-sh", "mac-brew", "mac-portable", "mac-source",
-    "linux-install-sh-cpu", "linux-install-sh-cuda", "linux-aur",
+    "win-winget", "win-scoop", "win-choco", "win-source",
+    "mac-install-sh", "mac-dmg", "mac-brew", "mac-portable", "mac-source",
+    "linux-install-sh-cpu", "linux-install-sh-cuda",
+    "linux-deb-cpu", "linux-deb-cuda", "linux-rpm-cpu", "linux-rpm-cuda",
+    "linux-appimage", "linux-flatpak", "linux-aur",
     "linux-portable-cpu", "linux-portable-cuda", "linux-source",
-    "docker-cpu", "docker-cuda", "models-import",
+    "pypi", "docker-cpu", "docker-cuda", "models-import",
 ]
 
 

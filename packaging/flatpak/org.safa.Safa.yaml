@@ -1,0 +1,62 @@
+# org.safa.Safa.yaml — Flatpak manifest (M10d wave 2, EXPERIMENTAL).
+#
+# Reverse-DNS id: org.safa.Safa — the project is called Safa and the
+# placeholder repo is github.com/<owner>/safa; io.github.<owner>.safa
+# cannot be rendered while the owner is a token, so org.safa is the
+# stable choice (it also matches the macOS CFBundleIdentifier).
+#
+# Design: the flatpak is a SANDBOXED BOOTSTRAP — it ships the small
+# safa-audio wheel + the uv binary. On first launch `safa setup`
+# provisions Python 3.11 + the heavy CPU/GPU runtime (hash-checked,
+# --require-hashes) into ~/.var/app/org.safa.Safa/data/safa-data —
+# the same flow every other install method uses. This keeps the flatpak
+# ~10 MB instead of ~5 GB.
+#
+# finish-args rationale:
+#   --share=network      : the UI is served on 127.0.0.1:8790 and must
+#                          reach the host browser; also first-run model
+#                          download + runtime provisioning.
+#   --filesystem=home    : jobs read/write user media anywhere under
+#                          home (portal file-pickers can't express the
+#                          app's read+write-output-folder flow yet).
+#   --device=dri         : optional, only useful for the cu124 variant
+#                          (needs the org.freedesktop nvidia runtime
+#                          extension on the host).
+#
+# Build (CI / local): copy the built wheel next to this manifest, then
+#   flatpak-builder --force-clean build-dir packaging/flatpak/org.safa.Safa.yaml
+#   flatpak-builder --run build-dir packaging/flatpak/org.safa.Safa.yaml safa
+app-id: org.safa.Safa
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: safa
+finish-args:
+  - --share=network
+  - --filesystem=home
+  - --device=dri
+modules:
+  - name: uv
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 "$(find . -name uv -type f | head -1)" /app/bin/uv
+    sources:
+      # single static binary — hash-pinned like every downloaded runtime
+      - type: archive
+        url: https://github.com/astral-sh/uv/releases/download/0.12.19/uv-x86_64-unknown-linux-gnu.tar.gz
+        sha256: 23bf5552d220e0842b65c862097b2ebaeba0064b74eda5e565e77fd25969d8c8
+
+  - name: safa
+    buildsystem: simple
+    # the wheel + safa-run.sh are copied next to this manifest before
+    # flatpak-builder runs (type: dir path: . = the manifest dir).
+    build-commands:
+      - python3 -m ensurepip --upgrade 2>/dev/null || true
+      - python3 -m pip install --prefix=/app --no-warn-script-location safa_audio-*-py3-none-any.whl
+      - install -Dm755 safa-run.sh /app/bin/safa
+      - install -Dm644 org.safa.Safa.desktop /app/share/applications/org.safa.Safa.desktop
+      - install -Dm644 org.safa.Safa.png /app/share/icons/hicolor/256x256/apps/org.safa.Safa.png
+      - install -Dm644 org.safa.Safa.metainfo.xml /app/share/metainfo/org.safa.Safa.metainfo.xml
+    sources:
+      - type: dir
+        path: ./

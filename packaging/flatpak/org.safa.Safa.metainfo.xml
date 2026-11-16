@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- org.safa.Safa.metainfo.xml — AppStream metadata (M10d, experimental). -->
+<component type="desktop-application">
+  <id>org.safa.Safa</id>
+  <name>Safa</name>
+  <summary>Clean audio and video on your own computer</summary>
+  <description>
+    <p>Safa cuts silence, removes noise, levels loudness, separates voice from music and writes subtitles — locally, nothing is uploaded. The app only listens on 127.0.0.1.</p>
+    <p>Experimental package: the AI runtime is provisioned inside the sandbox on first launch (internet required once).</p>
+  </description>
+  <launchable type="desktop-id">org.safa.Safa.desktop</launchable>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+  </categories>
+  <url type="homepage">https://github.com/&lt;owner&gt;/safa</url>
+  <provides><binary>safa</binary></provides>
+  <releases>
+    <release version="0.1.0" date="2026-01-01"/>
+  </releases>
+</component>

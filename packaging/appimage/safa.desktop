@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Safa
+Name[ar]=صفا
+Comment=Clean audio and video on your own computer
+Exec=safa
+Icon=safa
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupNotify=true

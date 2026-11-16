@@ -1,12 +1,17 @@
-"""Generate safa.ico — original mark: a teal circle (Safa = clarity) with
-a white audio waveform. Writes a multi-size .ico (16/32/48 px, 32-bit
-BGRA + AND mask). No dependencies — raw pixel math + struct packing.
+"""Generate Safa icons — original mark: a teal circle (Safa = clarity)
+with a white audio waveform. No dependencies — raw pixel math + struct
+packing.
 
-Run:  python make_icon.py  →  safa.ico next to this script.
+Run:  python make_icon.py              → safa.ico next to this script
+      python make_icon.py --ico OUT    → multi-size .ico (16/32/48 px)
+      python make_icon.py --png OUT [--size N]  → RGBA .png (N×N)
+      python make_icon.py --icns OUT   → Apple .icns (PNG payloads)
 """
 from __future__ import annotations
 
 import struct
+import sys
+import zlib
 from pathlib import Path
 
 TEAL = (14, 165, 164)      # #0EA5A4
@@ -91,6 +96,53 @@ def build(path: Path, sizes=(16, 32, 48)) -> Path:
     return path
 
 
+def png_image(px: list[list[tuple[int, int, int, int]]]) -> bytes:
+    """Minimal PNG encoder (RGBA8, filter 0) — enough for icons."""
+    size = len(px)
+    raw = b"".join(
+        b"\x00" + b"".join(bytes((r, g, b, a)) for r, g, b, a in row)
+        for row in px
+    )
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 9))
+            + chunk(b"IEND", b""))
+
+
+def write_png(path: Path, size: int = 256) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(png_image(_pixels(size)))
+    return path
+
+
+def write_icns(path: Path, sizes=(256, 512)) -> Path:
+    """Apple icon container: each entry is a PNG payload keyed by an OSType
+    (ic07=128, ic08=256, ic09=512, ic10=1024 retina-512, ic11/ic12 2x)."""
+    tags = {128: b"ic07", 256: b"ic08", 512: b"ic09", 1024: b"ic10"}
+    body = bytearray()
+    for s in sizes:
+        png = png_image(_pixels(s))
+        body += tags[s] + struct.pack(">I", len(png) + 8) + png
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"icns" + struct.pack(">I", len(body) + 8) + body)
+    return path
+
+
 if __name__ == "__main__":
-    out = build(Path(__file__).with_name("safa.ico"))
+    args = sys.argv[1:]
+    if not args or args[0] == "--ico":
+        out = build(Path(args[1]) if len(args) > 1
+                    else Path(__file__).with_name("safa.ico"))
+    elif args[0] == "--png":
+        size = int(args[args.index("--size") + 1]) if "--size" in args else 256
+        out = write_png(Path(args[1]), size)
+    elif args[0] == "--icns":
+        out = write_icns(Path(args[1]))
+    else:
+        raise SystemExit(__doc__)
     print(f"wrote {out} ({out.stat().st_size} bytes)")

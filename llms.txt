@@ -20,11 +20,16 @@ troubleshooting):
   online installer (recommended), offline CPU installer, offline GPU
   spanned installer, portable CPU zip, portable GPU split 7z, PowerShell
   one-liner (`install.ps1` — checksum-verified wrapper around setup.exe),
-  winget, Scoop, from source.
+  winget, Scoop, Chocolatey, from source.
 - [macOS — beta (Apple Silicon)](README.md#install--macos-beta-apple-silicon):
-  `install.sh` one-liner, Homebrew formula, portable tarball, source.
+  `install.sh` one-liner, unsigned .app in a .dmg (Right-click → Open),
+  Homebrew formula, portable tarball, source.
 - [Linux — beta (x86_64)](README.md#install--linux-beta-x86_64):
-  `install.sh` one-liner (cpu/cuda), AUR, portable tarballs, source.
+  `install.sh` one-liner (cpu/cuda), .deb, .rpm, AppImage (cpu),
+  experimental Flatpak bundle, AUR, portable tarballs, source.
+- [Python — any OS](README.md#install--python-any-os):
+  `pip install safa-audio` (or `uv tool install`) then `safa setup` —
+  a ~1.5 MB bootstrap wheel that provisions the runtime on first run.
 - [Docker](README.md#docker): CPU and CUDA images — always publish
   `127.0.0.1:8790:8790`, volume `/data`.
 - [Offline model packs](README.md#offline-model-packs):

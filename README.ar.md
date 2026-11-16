@@ -161,6 +161,20 @@ scoop install https://github.com/<owner>/safa/raw/main/packaging/scoop/safa.json
 يستخدم ملف CPU المحمول؛ لنسخة GPU استخدم الأرشيف المجزأ أعلاه (Scoop لا
 يجمع الأجزاء المقسّمة).
 
+### Chocolatey
+<!-- method:win-choco -->
+
+```powershell
+choco install safa --params "/Variant:gpu /DataDir:D:\SafaData"
+```
+
+يغلّف المثبّت المتصل بصمت — نفس ملف setup.exe (~50 ميغا) مع تنزيل بيئة
+التشغيل أثناء التثبيت (يحتاج إنترنت). `--params` تتحول إلى معلمات Inno:
+`/Variant:cpu|gpu|auto` (الافتراضي `auto` — يكشف تعريف NVIDIA)،
+`/DataDir:<مجلد>` للمهام والنواتج والنماذج، `/InstallDir:<مجلد>`
+للتطبيق. `choco uninstall safa` يشغّل مزيل Inno — مجلد بياناتك يبقى.
+غير موقّع — نفس ملاحظة SmartScreen أعلاه.
+
 ### من المصدر (ويندوز)
 <!-- method:win-source -->
 
@@ -189,6 +203,18 @@ curl -fsSL https://github.com/<owner>/safa/releases/latest/download/install.sh |
 المكتب. حجر Gatekeeper يُزال من مجلد التطبيق فقط. أرشيف ~0.5 غيغا —
 تُتحقق بصمة SHA-256 للأرشيف مقابل `SHA256SUMS.txt` المنشور قبل فك الضغط
 (`--from-dir <مجلد>` يثبّت من أرشيف محلي بنفس الطريقة).
+
+### ملف ‎.dmg (تطبيق غير موقّع)
+<!-- method:mac-dmg -->
+
+`Safa-<ver>-macos-arm64.dmg` — **~0.7 غيغا**، بلا مثبّت: افتحه واسحب
+**Safa.app** إلى أي مكان (مثل `/Applications`). بيئة التشغيل وffmpeg
+داخل الحزمة — لا يحتاج إنترنت عدا تنزيل النماذج أول مرة (~600 ميغا).
+
+- **غير موقّع**: أول تشغيل عبر **Right-click ← Open** — يسأل Gatekeeper
+  مرة واحدة. البناء لا يزيل الحجر عنك أبدًا؛ إزالته يدويًا
+  (`xattr -dr com.apple.quarantine Safa.app`) خيارك أنت.
+- البيانات في `~/Library/Application Support/Safa`.
 
 ### Homebrew
 <!-- method:mac-brew -->
@@ -232,6 +258,61 @@ curl -fsSL .../install.sh | sh -s -- --variant cuda   # NVIDIA
 أو `--variant cuda`. تُتحقق بصمة SHA-256 للأرشيف مقابل `SHA256SUMS.txt`
 المنشور قبل فك الضغط.
 
+### حزمة ‎.deb (ديبيان / أوبونتو / مينت)
+<!-- method:linux-deb-cpu -->
+<!-- method:linux-deb-cuda -->
+
+```sh
+sudo apt install ./Safa-<ver>-linux-x64-cpu.deb    # أو -cuda.deb
+```
+
+يثبّت بيئة التشغيل كاملة في `/opt/safa` مع أمر `safa` وعنصر قائمة.
+**~0.8 غيغا** (CPU)؛ حزمة CUDA تغلّف حمولة GPU (~4.9 غيغا) — فوق حد
+ملفات GitHub البالغ 2 غيغابايت، فإن غابت عن الإصدار استخدم
+`install.sh --variant cuda`. ffmpeg مضمّن؛ البيانات في
+`~/.local/share/safa-data` وتبقى بعد `apt purge`. لا يحتاج إنترنت عدا
+تنزيل النماذج أول مرة (~600 ميغا).
+
+### حزمة ‎.rpm (فيدورا)
+<!-- method:linux-rpm-cpu -->
+<!-- method:linux-rpm-cuda -->
+
+```sh
+sudo dnf install ./Safa-<ver>-linux-x64-cpu.rpm    # أو -cuda.rpm
+```
+
+نفس تخطيط ‎.deb وقواعدها. `safa` و`safa-cuda` متعارضتان — ثبّت نسخة
+واحدة فقط.
+
+### AppImage (CPU)
+<!-- method:linux-appimage -->
+
+```sh
+chmod +x Safa-<ver>-linux-x64.AppImage
+./Safa-<ver>-linux-x64.AppImage                          # يحتاج FUSE
+./Safa-<ver>-linux-x64.AppImage --appimage-extract-and-run   # بدون FUSE
+```
+
+**~0.8 غيغا**، بلا تثبيت — البيانات في
+`${XDG_DATA_HOME:-~/.local/share}/safa-data` (يتجاوزها
+`APPIMAGE_DATA_DIR`). CPU فقط: AppImage بنسخة CUDA سيكون ~4.9 غيغا —
+فوق حد 2 غيغابايت — استخدم ‎.deb أو ‎.rpm.
+
+### Flatpak (تجريبي)
+<!-- method:linux-flatpak -->
+
+```sh
+flatpak install ./Safa-<ver>-linux-x64.flatpak
+```
+
+**تجريبي** — ليس على Flathub؛ تُنشر الحزمة في الإصدار فقط عند نجاح بنائها
+في CI. هي محمّل صغير **~10 ميغا** داخل صندوق رملي: عند أول تشغيل ينزّل
+بيئة التشغيل (~2 غيغا، ببصمة مُتحققة) ثم النماذج (~600 ميغا) إلى
+`~/.var/app/org.safa.Safa/data/safa-data` — يحتاج إنترنت مرة واحدة.
+أذونات الصندوق: `--share=network` (واجهة localhost + تلك التنزيلات)،
+`--filesystem=home` (قراءة/كتابة ملفاتك)، `--device=dri` (GPU
+اختياري). ملف `org.safa.Safa.yaml` (المانيفست) يُنشر بجانبها.
+
 ### AUR (آرتش)
 <!-- method:linux-aur -->
 
@@ -259,6 +340,28 @@ npm --prefix frontend ci; npm --prefix frontend run build
 ```
 
 يحتاج ffmpeg من النظام (`apt install ffmpeg`).
+
+---
+
+## التثبيت — Python (أي نظام)
+<!-- method:pypi -->
+
+```sh
+pip install safa-audio        # أو: uv tool install safa-audio / pipx install safa-audio
+safa setup --device auto      # cpu|cuda — ينزّل ~2 غيغا (cpu) / ~5 غيغا (cuda)
+safa                          # يفتح http://127.0.0.1:8790
+safa models import <pack.zip> # حزمة نماذج دون اتصال
+```
+
+حزمة bootstrap صغيرة **~1.5 ميغا**: أمر `safa` يجهّز بيئة التشغيل
+الحقيقية (Python 3.11 + تبعيات مقفلة البصمة + ffmpeg) تحت مجلد بياناتك —
+`%LOCALAPPDATA%\Safa` أو `~/Library/Application Support/Safa` أو
+`${XDG_DATA_HOME:-~/.local/share}/safa-data` (يتجاوزها
+`SOUND_SYSTEM_DATA_DIR`). يحتاج إنترنت لـ`setup` ولتنزيل النماذج أول
+مرة (~600 ميغا)؛ ثم يعمل دون اتصال تمامًا. يتطلب Python 3.11+ ‏(3.11
+تحديدًا عند غياب `uv`). على ماك ثبّت ffmpeg أولًا (`brew install
+ffmpeg`). نفس الحزمة تُنشر في الإصدار كملف
+`safa_audio-<ver>-py3-none-any.whl`.
 
 ---
 

@@ -1,0 +1,19 @@
+Package: {{PKG}}
+Version: {{VERSION}}
+Section: sound
+Priority: optional
+Architecture: amd64
+Installed-Size: {{SIZE_KB}}
+Maintainer: Safa <https://github.com/<owner>/safa>
+Homepage: https://github.com/<owner>/safa
+Conflicts: {{CONFLICT}}
+Description: Clean audio and video on your own computer
+ Safa cuts silence, removes noise, levels loudness, separates voice
+ from music and writes subtitles — everything runs locally, nothing
+ is uploaded (the app only listens on 127.0.0.1).
+ .
+ ffmpeg is bundled (tools/ffmpeg) — no Depends on a system ffmpeg, so
+ the package installs identically on distros whose ffmpeg is limited
+ or missing (e.g. Fedora base repos). The Python runtime and the app
+ payload live in /opt/safa; user data (jobs, outputs, models) lives in
+ ~/.local/share/safa-data and is never removed on uninstall or purge.

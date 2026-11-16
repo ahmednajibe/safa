@@ -38,6 +38,22 @@ sha256sums          = "SHA256SUMS.txt"
 install_ps1         = "install.ps1"
 install_sh          = "install.sh"
 
+# M10d wave 2 — ecosystem packages. The wheel is also published on PyPI
+# (after approval) but still ships on the release page for offline use.
+# The CUDA AppImage is omitted on purpose (~4.9 GB > 2 GiB limit);
+# CUDA users take the .deb/.rpm instead. The Flatpak is experimental —
+# built as a bundle only when its CI job succeeds (allowed-to-fail).
+pypi_wheel          = "safa_audio-{ver}-py3-none-any.whl"
+pypi_sdist          = "safa_audio-{ver}.tar.gz"
+linux_cpu_deb       = "Safa-{ver}-linux-x64-cpu.deb"
+linux_cuda_deb      = "Safa-{ver}-linux-x64-cuda.deb"
+linux_cpu_rpm       = "Safa-{ver}-linux-x64-cpu.rpm"
+linux_cuda_rpm      = "Safa-{ver}-linux-x64-cuda.rpm"
+linux_appimage      = "Safa-{ver}-linux-x64.AppImage"
+macos_dmg           = "Safa-{ver}-macos-arm64.dmg"
+flatpak_bundle      = "Safa-{ver}-linux-x64.flatpak"
+flatpak_manifest    = "org.safa.Safa.yaml"
+
 # Model sets for the offline packs (names from
 # backend/core/models_manifest.py). silero_vad ships inside its wheel —
 # it has no model files to pack.

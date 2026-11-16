@@ -188,8 +188,269 @@ jobs:
           name: linux
           path: dist_release/
 
+  # ---- M10d wave 2 ------------------------------------------------------------
+
+  wheel:
+    # safa-audio bootstrap wheel + sdist — built here and attached to the
+    # draft release; PyPI publish stays OFF (see commented step below).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: astral-sh/setup-uv@60cc2b45855283f89ec62f1aba5ee88bf9ec7fc7  # v6.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.11"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: frontend build (the wheel payload carries frontend/dist)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: build wheel + sdist
+        run: python3 scripts/build-wheel.py
+      - name: stage release assets
+        run: python3 scripts/list-release-assets.py dist_pkg --dest dist_release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: wheel
+          path: dist_release/
+          if-no-files-found: error
+
+      # --- PyPI publish (trusted publishing) — DISABLED ON PURPOSE --------
+      # The orchestrator enables this step only after the user approves a
+      # real PyPI project name and replaces the <owner> placeholder in
+      # release-info.toml. To enable: add `permissions: id-token: write`
+      # to this job, then uncomment:
+      # - name: publish to PyPI (trusted publishing)
+      #   uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
+      #   with:
+      #     packages-dir: dist_pkg/
+      #     skip-existing: true
+
+  deb:
+    needs: linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0
+        with:
+          name: linux
+          path: dl-linux
+      - name: build .deb (cpu + cuda)
+        run: |
+          mkdir -p dist_pkg
+          cp dl-linux/Safa-*-linux-x64-*.tar.gz dist_pkg/
+          sh scripts/package-linux.sh deb --variant cpu
+          sh scripts/package-linux.sh deb --variant cuda
+      - name: apt install → health → purge keeps data
+        run: |
+          sudo apt-get install -y ./dist_pkg/Safa-*-linux-x64-cpu.deb
+          safa --no-browser --port 8795 &
+          SVPID=$!
+          ok=0
+          for i in $(seq 1 60); do
+            if python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8795/api/health', timeout=2).status==200 else 1)" 2>/dev/null; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          kill "$SVPID" 2>/dev/null || true
+          [ "$ok" = 1 ] || { echo "health check failed"; exit 1; }
+          test -d "$HOME/.local/share/safa-data"
+          sudo apt-get purge -y safa
+          test -d "$HOME/.local/share/safa-data"   # purge keeps user data
+          test ! -e /usr/bin/safa
+      - name: stage release assets (debs only — seed tarballs removed)
+        run: |
+          rm -f dist_pkg/Safa-*-linux-x64-*.tar.gz
+          python3 scripts/list-release-assets.py dist_pkg --dest dist_release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: deb
+          path: dist_release/
+          if-no-files-found: error
+
+  rpm:
+    needs: linux
+    runs-on: ubuntu-latest
+    container: fedora:40
+    steps:
+      - name: container tools
+        run: dnf install -y git tar rpm-build python3 findutils
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0
+        with:
+          name: linux
+          path: dl-linux
+      - name: build .rpm (cpu + cuda)
+        run: |
+          mkdir -p dist_pkg
+          cp dl-linux/Safa-*-linux-x64-*.tar.gz dist_pkg/
+          sh scripts/package-linux.sh rpm --variant cpu
+          sh scripts/package-linux.sh rpm --variant cuda
+      - name: dnf install → health → remove keeps data
+        run: |
+          dnf install -y dist_pkg/rpm/Safa-*-linux-x64-cpu.rpm
+          safa --no-browser --port 8795 &
+          SVPID=$!
+          ok=0
+          for i in $(seq 1 60); do
+            if python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8795/api/health', timeout=2).status==200 else 1)" 2>/dev/null; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          kill "$SVPID" 2>/dev/null || true
+          [ "$ok" = 1 ] || { echo "health check failed"; exit 1; }
+          test -d "$HOME/.local/share/safa-data"
+          rpm -e safa
+          test -d "$HOME/.local/share/safa-data"   # removal keeps user data
+          test ! -e /usr/bin/safa
+      - name: stage release assets (rpms only — seed tarballs removed)
+        run: |
+          rm -f dist_pkg/Safa-*-linux-x64-*.tar.gz
+          python3 scripts/list-release-assets.py dist_pkg --dest dist_release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: rpm
+          path: dist_release/
+          if-no-files-found: error
+
+  appimage:
+    # CPU variant only — the CUDA payload (~4.9 GB) exceeds the 2 GiB
+    # release-asset limit; package-linux.sh refuses --variant cuda.
+    needs: linux
+    runs-on: ubuntu-latest
+    env:
+      # appimagetool is itself an AppImage: this env makes its runtime
+      # self-extract instead of needing FUSE on the runner.
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+      # upstream ships only a moving "continuous" tag — the URL AND this
+      # sha256 are bumped together; a changed artifact fails loudly here.
+      APPIMAGETOOL_URL: "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+      APPIMAGETOOL_SHA256: "e8c1169c4af66c3184d7ee110713d4be04befe671fa358e2c1591ee840553b03"
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0
+        with:
+          name: linux
+          path: dl-linux
+      - name: fetch appimagetool (sha256-verified)
+        run: |
+          mkdir -p tools/appimage dist_pkg
+          curl -fsSL "$APPIMAGETOOL_URL" -o tools/appimage/appimagetool
+          echo "$APPIMAGETOOL_SHA256  tools/appimage/appimagetool" | sha256sum -c -
+          chmod +x tools/appimage/appimagetool
+      - name: build AppImage (cpu)
+        run: |
+          cp dl-linux/Safa-*-linux-x64-cpu.tar.gz dist_pkg/
+          sh scripts/package-linux.sh appimage --tool tools/appimage/appimagetool
+      - name: extract-and-run → health
+        run: |
+          ./dist_pkg/Safa-*-linux-x64.AppImage --appimage-extract-and-run --no-browser --port 8795 &
+          SVPID=$!
+          ok=0
+          for i in $(seq 1 60); do
+            if python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8795/api/health', timeout=2).status==200 else 1)" 2>/dev/null; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          kill "$SVPID" 2>/dev/null || true
+          [ "$ok" = 1 ] || { echo "health check failed"; exit 1; }
+      - name: stage release assets (AppImage only — seed tarball removed)
+        run: |
+          rm -f dist_pkg/Safa-*-linux-x64-cpu.tar.gz
+          python3 scripts/list-release-assets.py dist_pkg --dest dist_release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: appimage
+          path: dist_release/
+          if-no-files-found: error
+
+  dmg:
+    # unsigned Safa.app inside a .dmg — the tarball built by the macos
+    # job is the payload; quarantine is never stripped by the build.
+    needs: macos
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0
+        with:
+          name: macos
+          path: dl-macos
+      - name: build .dmg (hdiutil, unsigned)
+        run: |
+          mkdir -p dist_pkg
+          cp dl-macos/Safa-*-macos-arm64.tar.gz dist_pkg/
+          sh scripts/package-dmg.sh
+      - name: stage release assets (dmg only — seed tarball removed)
+        run: |
+          rm -f dist_pkg/Safa-*-macos-arm64.tar.gz
+          python3 scripts/list-release-assets.py dist_pkg --dest dist_release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: dmg
+          path: dist_release/
+          if-no-files-found: error
+
+  flatpak:
+    # EXPERIMENTAL — sandboxed bootstrap: the bundle ships the ~1.5 MB
+    # safa-audio wheel; `safa setup` provisions the runtime inside the
+    # sandbox on first launch. Allowed to fail: the release proceeds
+    # without the bundle when this job does not succeed.
+    needs: wheel
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0
+        with:
+          name: wheel
+          path: dl-wheel
+      - name: package version
+        id: meta
+        run: echo "version=$(sed -n 's/^version = \"\(.*\)\"/\1/p' pyproject.toml | head -1)" >> "$GITHUB_OUTPUT"
+      - name: stage flatpak build context (manifest + wheel + icon)
+        run: |
+          mkdir -p data/tmp/fp
+          cp packaging/flatpak/org.safa.Safa.yaml \
+             packaging/flatpak/safa-run.sh \
+             packaging/flatpak/org.safa.Safa.desktop \
+             packaging/flatpak/org.safa.Safa.metainfo.xml data/tmp/fp/
+          cp dl-wheel/safa_audio-*-py3-none-any.whl data/tmp/fp/
+          python3 packaging/windows/launcher/make_icon.py \
+            --png data/tmp/fp/org.safa.Safa.png --size 256
+      - name: build flatpak bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3  # v6.8
+        with:
+          manifest-path: data/tmp/fp/org.safa.Safa.yaml
+          bundle: Safa-${{ steps.meta.outputs.version }}-linux-x64.flatpak
+          arch: x86_64
+          cache: false
+          upload-artifact: false
+      - name: collect bundle + manifest into dist_pkg/flatpak
+        if: always()
+        run: |
+          mkdir -p dist_pkg/flatpak
+          mv Safa-*-linux-x64.flatpak dist_pkg/flatpak/ 2>/dev/null || true
+          cp packaging/flatpak/org.safa.Safa.yaml dist_pkg/flatpak/
+      - name: stage release assets
+        if: always()
+        run: python3 scripts/list-release-assets.py dist_pkg --dest dist_release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: flatpak
+          path: dist_release/
+          if-no-files-found: warn
+
   publish:
-    needs: [windows, macos, linux]
+    needs: [windows, macos, linux, wheel, deb, rpm, appimage, dmg, flatpak]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -198,6 +459,15 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: drop assets over the 2 GiB release limit
+        run: |
+          # GitHub rejects release assets >= 2 GiB and one rejection fails
+          # the whole upload. CUDA .deb/.rpm/tarball payloads (~4.9 GB)
+          # land here; they are listed in the job log and skipped. Linux
+          # CUDA users follow the README fallback until a split/online
+          # path exists.
+          find artifacts -maxdepth 1 -type f -size +2047M -print -delete \
+            | sed 's/^/::warning::skipped oversize asset: /'
       - name: SHA256SUMS.txt over all merged assets
         run: |
           # Drop any stale sums a job uploaded, then hash every merged

@@ -271,8 +271,11 @@ def free_space_gb(path: Path) -> float:
 
 
 def bundled_python(root: Path) -> Path | None:
-    for rel in ("python/python.exe", "python/bin/python3",
-                "python/bin/python"):
+    # ``python/Scripts/python.exe`` covers a Windows *venv* placed at
+    # ``<app>/python`` — the ``safa-audio`` wheel provisions its runtime
+    # exactly that way (M10d), so it must count as a bundled interpreter.
+    for rel in ("python/python.exe", "python/Scripts/python.exe",
+                "python/bin/python3", "python/bin/python"):
         p = root / rel
         if p.is_file():
             return p

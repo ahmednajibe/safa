@@ -41,6 +41,20 @@ ASSET_FILES = [
     "gpu-portable/assemble-gpu.bat",
     "gpu-portable/7z.exe",
     "gpu-portable/7z.dll",
+    # M10d wave 2
+    "Safa-0.1.0-macos-arm64.tar.gz",
+    "Safa-0.1.0-macos-arm64.dmg",
+    "Safa-0.1.0-linux-x64-cpu.tar.gz",
+    "Safa-0.1.0-linux-x64-cuda.tar.gz",
+    "safa_audio-0.1.0-py3-none-any.whl",
+    "safa_audio-0.1.0.tar.gz",
+    "Safa-0.1.0-linux-x64-cpu.deb",
+    "Safa-0.1.0-linux-x64-cuda.deb",
+    "rpm/Safa-0.1.0-linux-x64-cpu.rpm",
+    "rpm/Safa-0.1.0-linux-x64-cuda.rpm",
+    "Safa-0.1.0-linux-x64.AppImage",
+    "flatpak/Safa-0.1.0-linux-x64.flatpak",
+    "flatpak/org.safa.Safa.yaml",
 ]
 
 NON_ASSET_FILES = [
@@ -147,3 +161,19 @@ def test_workflow_files_parse_as_yaml():
     import yaml  # type: ignore  (test dep only — PyYAML is a dev dep)
     for doc in (REL, CI):
         yaml.safe_load(doc)
+
+def test_publish_drops_oversize_assets_before_sums_and_upload():
+    """One asset >= 2 GiB fails the whole GitHub upload: the publish job
+    must drop them before hashing and releasing."""
+    import yaml  # type: ignore
+
+    wf = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "release.yml").read_text("utf-8"))
+    steps = wf["jobs"]["publish"]["steps"]
+    names = [s.get("name", "") for s in steps]
+    drop = next(i for i, n in enumerate(names) if "2 GiB" in n)
+    sums = next(i for i, n in enumerate(names) if "SHA256SUMS" in n)
+    rel = next(i for i, s in enumerate(steps)
+               if "action-gh-release" in s.get("uses", ""))
+    assert drop < sums < rel
+    assert "-size +2047M" in steps[drop]["run"]

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Contents/MacOS/Safa — .app launcher (M10d). The payload (the portable
+# macOS tarball contents, minus portable.txt) sits in
+# Contents/Resources/app. Data goes to ~/Library/Application Support/Safa
+# via SOUND_SYSTEM_DATA_DIR — never inside the .app bundle. The launcher
+# opens the user's browser itself.
+set -u
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SAFA_HOME="$HERE/../Resources/app"
+export SOUND_SYSTEM_DATA_DIR="$HOME/Library/Application Support/Safa"
+export PYTHONUTF8=1
+mkdir -p "$SOUND_SYSTEM_DATA_DIR"
+cd "$SAFA_HOME" || exit 4
+exec "$SAFA_HOME/python/bin/python3" -m backend.launcher "$@"

@@ -1,0 +1,15 @@
+#!/bin/sh
+# AppRun — AppImage entry point (M10d). May run mounted (APPDIR set by
+# the runtime) or extracted; resolve the payload through this script's
+# own path so both work. Installed-mode semantics: data lives in the
+# user XDG dir, never next to the AppImage.
+set -u
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SAFA_HOME="$HERE/lib/safa"
+: "${XDG_DATA_HOME:=$HOME/.local/share}"
+# APPIMAGE_DATA_DIR lets a user relocate the data dir; default is XDG.
+export SOUND_SYSTEM_DATA_DIR="${APPIMAGE_DATA_DIR:-$XDG_DATA_HOME/safa-data}"
+export PYTHONUTF8=1
+mkdir -p "$SOUND_SYSTEM_DATA_DIR"
+cd "$SAFA_HOME" || exit 4
+exec "$SAFA_HOME/python/bin/python3" -m backend.launcher "$@"

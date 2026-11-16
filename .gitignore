@@ -17,3 +17,4 @@ graphify-out/
 .pw-browsers/
 dist_pkg/
 packaging/windows/launcher/Safa.exe
+packaging/pypi/safa_bootstrap/app/

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "safa-audio"
+# version is rewritten from the ROOT pyproject by scripts/build-wheel.py;
+# tests/test_pypi_wheel.py asserts they stay in sync.
+version = "0.1.0"
+description = "Safa (صفا) — clean audio and video on your own computer (bootstrap installer)"
+readme = "README.md"
+license = { text = "MIT" }
+# The bootstrap itself only needs a stdlib — `safa setup` provisions the
+# real runtime (Python 3.11 + hashed requirement locks) under the data dir.
+requires-python = ">=3.11"
+authors = [{ name = "Safa" }]
+keywords = ["audio", "denoise", "transcription", "ffmpeg", "local"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/<owner>/safa"
+Documentation = "https://github.com/<owner>/safa#readme"
+Source = "https://github.com/<owner>/safa"
+Issues = "https://github.com/<owner>/safa/issues"
+
+[project.scripts]
+safa = "safa_bootstrap.cli:main"
+safa-audio = "safa_bootstrap.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["safa_bootstrap"]
+
+[tool.hatch.build.targets.sdist]
+include = ["safa_bootstrap", "pyproject.toml", "README.md"]

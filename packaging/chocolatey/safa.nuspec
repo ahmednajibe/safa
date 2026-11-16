@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- safa.nuspec — Chocolatey package for Safa (M10d wave 2).
+     Wraps the online Inno setup.exe (silent, per-user); the heavy
+     runtime is provisioned by the installer itself via uv.
+     Tokens {{VERSION}} {{REPO}} {{SETUP_ASSET}} {{SHA256}} are filled by
+     render_choco.py from release-info.toml — the committed file keeps
+     the <owner>/<sha256> placeholders like the other manifests. -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>safa</id>
+    <version>{{VERSION}}</version>
+    <title>Safa (صفا)</title>
+    <authors>Safa</authors>
+    <projectUrl>{{REPO}}</projectUrl>
+    <packageSourceUrl>{{REPO}}</packageSourceUrl>
+    <licenseUrl>{{REPO}}/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <docsUrl>{{REPO}}#readme</docsUrl>
+    <bugTrackerUrl>{{REPO}}/issues</bugTrackerUrl>
+    <summary>Clean audio and video on your own computer</summary>
+    <description>Safa cleans up audio and video recordings locally — cuts silence, removes noise, levels volume, separates voice from music, writes subtitles. Everything runs on your computer (127.0.0.1 only); nothing is uploaded. This package wraps the online installer: it downloads the runtime (~1 GB CPU / ~5 GB GPU) during setup and needs internet at install time.</description>
+    <tags>safa audio video cleanup noise-reduction transcription local</tags>
+    <releaseNotes>{{REPO}}/releases</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
