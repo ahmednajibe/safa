@@ -1,0 +1,7 @@
+﻿I’m using the review and debugging skills to trace defects to concrete inputs and failure states. I’ll start with the spec and plan, then review the code, packaging, and tests. This will stay read only; I won’t run tests because they write temporary files and wipe `.pytest_tmp`.
+
+No dedicated security or test-quality skill was found in the active plugins. I’ll apply those checks directly and report only findings supported by the code.I found a data-loss risk in the Windows uninstaller: installation marks any chosen data directory as Safa-owned, and uninstall can then recursively delete that entire directory—including unrelated files. The online installer also appears to ignore the CPU/GPU wizard selection; I’m checking the provisioning path and tests.
+
+For mouth-click performance, I’m tracing repeated median filtering and span scans. Those look like useful targets for speedups that preserve the detector’s decisions.The review now has several concrete release blockers: the pinned `uv` version has no `pip download` command, Unix installs retain a portable-mode marker that overrides the chosen data directory, and a fresh Whisper download lacks the `main` reference used by transcription.
+
+I also confirmed UI correctness bugs: silent uploads remain stuck in preparation, previews starting after zero can compare the wrong timestamps, and selecting a history job can pair its output with another file’s original. I’m checking the remaining resource and test gaps, then narrowing the report to the highest-impact findings.

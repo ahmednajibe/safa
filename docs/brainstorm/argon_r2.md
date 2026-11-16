@@ -1,0 +1,1 @@
+﻿I have read the core backend, media/DSP pipeline, packaging/distribution scripts, frontend, and test suite, and launched four specialized read-only review subagents in parallel to cross-check every subsystem. Waiting for their reports to complete before compiling the final review.
