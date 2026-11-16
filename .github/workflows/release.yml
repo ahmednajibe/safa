@@ -22,7 +22,7 @@ jobs:
       SIGN_PFX: ${{ secrets.SIGN_PFX }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
-      - uses: astral-sh/setup-uv@60cc2b45855283f89ec62f1aba5ee88bf9ec7fc7  # v6.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.11"
@@ -127,10 +127,10 @@ jobs:
           if-no-files-found: error
 
   macos:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
-      - uses: astral-sh/setup-uv@60cc2b45855283f89ec62f1aba5ee88bf9ec7fc7  # v6.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.11"
@@ -161,7 +161,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
-      - uses: astral-sh/setup-uv@60cc2b45855283f89ec62f1aba5ee88bf9ec7fc7  # v6.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.11"
@@ -197,7 +197,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
-      - uses: astral-sh/setup-uv@60cc2b45855283f89ec62f1aba5ee88bf9ec7fc7  # v6.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.11"
@@ -379,7 +379,7 @@ jobs:
     # unsigned Safa.app inside a .dmg — the tarball built by the macos
     # job is the payload; quarantine is never stripped by the build.
     needs: macos
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0
