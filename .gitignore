@@ -15,3 +15,4 @@ tests/fixtures/real/
 graphify-out/
 .pytest_tmp/
 .pw-browsers/
+dist_pkg/

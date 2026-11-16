@@ -4,7 +4,11 @@ from pathlib import Path
 
 ROOT: Path = Path(__file__).resolve().parents[2]
 TOOLS_DIR = ROOT / "tools"
-MODELS_DIR = ROOT / "models"
+# ``SOUND_SYSTEM_MODELS_DIR`` relocates the model cache root (M10b: the
+# package smoke test points a bundled copy at an existing models/ tree so
+# nothing re-downloads). Must be set before this module is imported.
+_models_env = os.environ.get("SOUND_SYSTEM_MODELS_DIR", "").strip()
+MODELS_DIR = Path(_models_env) if _models_env else ROOT / "models"
 DATA_DIR = ROOT / "data"
 FIXTURES_DIR = ROOT / "tests" / "fixtures" / "generated"
 

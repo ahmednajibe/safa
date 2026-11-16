@@ -64,6 +64,9 @@ def _vad_model():
     if _MODEL is None:
         from silero_vad import load_silero_vad
 
+        from backend.media.silero_patch import patch_silero_unicode
+
+        patch_silero_unicode()
         _MODEL = load_silero_vad(onnx=True)  # ~2.5x faster than jit
     return _MODEL
 

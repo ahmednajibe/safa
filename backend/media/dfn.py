@@ -39,6 +39,48 @@ _CHUNK_S = 30.0
 _OVERLAP_S = 1.0
 
 
+def _return_none_on_oserror(fn):
+    """Wrap a probe so a missing `git` binary behaves like not-a-repo."""
+
+    def inner(*a, **k):
+        try:
+            return fn(*a, **k)
+        except OSError:
+            return None
+
+    return inner
+
+
+def patch_df_portability() -> None:
+    """deepfilternet 0.5.6 spawns ``git`` inside ``get_git_root()`` and
+    ``get_branch_name()`` (reached via ``init_df -> init_logger``) and only
+    catches ``CalledProcessError`` — on a machine without git (every
+    portable install) that escapes as ``FileNotFoundError`` and kills the
+    denoise stage. Wrap the probes to return ``None`` like the not-a-repo
+    path, and rebind every already-imported ``df.*`` module that holds its
+    own reference (``from df.utils import ...``). Idempotent; called lazily
+    from ``DfnEngine.load`` before ``init_df``."""
+    import df.utils
+
+    if getattr(df.utils, "_ss_git_probe_patched", False):
+        return
+    names = ("get_git_root", "get_branch_name", "get_commit_hash")
+    originals = {
+        name: getattr(df.utils, name)
+        for name in names
+        if getattr(df.utils, name, None) is not None
+    }
+    for name, orig in originals.items():
+        setattr(df.utils, name, _return_none_on_oserror(orig))
+    df.utils._ss_git_probe_patched = True
+    for mod in list(sys.modules.values()):
+        if not str(getattr(mod, "__name__", "")).startswith("df."):
+            continue
+        for name, orig in originals.items():
+            if getattr(mod, name, None) is orig:
+                setattr(mod, name, getattr(df.utils, name))
+
+
 class DfnEngine:
     """One loaded DeepFilterNet3 model on one device."""
 
@@ -63,6 +105,7 @@ class DfnEngine:
             sys.modules["torchaudio.backend.common"] = common
 
         mod = sys.modules["df.enhance"]
+        patch_df_portability()
         if not getattr(mod, "_ss_cache_dir_patched", False):
             # init_df() -> maybe_download_model uses get_cache_dir (appdirs
             # user cache); redirect to models/deepfilternet (FEASIBILITY #3).

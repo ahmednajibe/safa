@@ -88,6 +88,9 @@ def speech_intervals_vad(
     import torch  # noqa: E402 — worker-side only
     from silero_vad import get_speech_timestamps, load_silero_vad  # noqa: E402
 
+    from backend.media.silero_patch import patch_silero_unicode
+
+    patch_silero_unicode()
     model = load_silero_vad()
 
     step = max(1.0, window_s - overlap_s)

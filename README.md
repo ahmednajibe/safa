@@ -42,6 +42,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup.ps1 -AllModels
 - `whisper_turbo` (~1.6 GB) — more accurate subtitles
 - `Kim_Vocal_2` (~67 MB) — alternative separation model
 
+## Share with a friend
+
+Give them one ZIP — no Python, Node, or installation needed:
+
+| ZIP                                  | Size      | Pick when                    |
+| ------------------------------------ | --------- | ---------------------------- |
+| `SoundSystem-*-win64-cpu.zip`        | ~0.5 GB   | any laptop (works everywhere)|
+| `SoundSystem-*-win64-gpu.zip`        | ~4.6 GB   | they have an NVIDIA card     |
+
+Steps for them:
+
+1. Unzip to a **short path outside OneDrive** (e.g. `D:\SoundSystem`).
+   Needs ~2 GB free for the CPU build, ~9 GB for the GPU build.
+2. Double-click **`start.bat`**.
+3. First run downloads **~600 MB** of AI models once — after that it
+   works completely offline. Everything (models, jobs, logs) stays
+   inside the app folder; nothing touches C:.
+
 ## Using the app
 
 1. **Drop a file** into the window (audio or video).

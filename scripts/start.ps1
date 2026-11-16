@@ -50,6 +50,9 @@ if ($null -eq $validPort) {
     exit 2
 }
 $Port = $validPort
+# The server's settings read SOUND_SYSTEM_PORT for the Host allow-list —
+# propagate the validated value so -Port and the backend never disagree.
+$env:SOUND_SYSTEM_PORT = "$Port"
 
 $Base = "http://127.0.0.1:$Port"
 
@@ -93,73 +96,121 @@ if ($State -eq "busy") {
     exit 3
 }
 
-# ---- repair checks -----------------------------------------------------------
-$NeedSetup = $false
-if (-not (Test-Path (Join-Path $Root ".venv\Scripts\python.exe"))) {
-    $NeedSetup = $true
-}
-if (-not (Test-Path (Join-Path $Root "tools\ffmpeg\bin\ffmpeg.exe"))) {
-    $NeedSetup = $true
-}
-if (-not (Test-Path (Join-Path $Root "tools\ffmpeg\bin\ffprobe.exe"))) {
-    $NeedSetup = $true
-}
-if ($NeedSetup) {
+# ---- install mode --------------------------------------------------------------
+# Portable package (M10b): a private Python ships at python\python.exe —
+# no uv, no Node, no .venv. Dev installs only ever have .venv.
+$VenvPython = Join-Path $Root ".venv\Scripts\python.exe"
+$BundledPython = Join-Path $Root "python\python.exe"
+$Portable = Test-Path $BundledPython
+if ((Test-Path (Join-Path $Root "python")) -and -not $Portable) {
     Write-Bilingual `
-        "First-time setup (or repair) — this downloads what is missing and can take a while." `
-        "الإعداد لأول مرة (أو الإصلاح) — ينزّل ما هو ناقص وقد يستغرق بعض الوقت." Cyan
-    $setup = Join-Path $Root "scripts\setup.ps1"
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $setup
-    if ($LASTEXITCODE -ne 0) {
+        "This package is incomplete (python\python.exe missing). Extract the zip again into a fresh folder." `
+        "هذه الحزمة غير مكتملة (python\python.exe مفقود). فكّ ضغط الملف مرة أخرى في مجلد جديد." Red
+    exit 4
+}
+
+if ($Portable) {
+    # ---- portable package: nothing to sync or rebuild -------------------------
+    if (-not (Test-Path (Join-Path $Root "tools\ffmpeg\bin\ffmpeg.exe")) -or
+        -not (Test-Path (Join-Path $Root "tools\ffmpeg\bin\ffprobe.exe"))) {
         Write-Bilingual `
-            "Setup failed — see the messages above, then run scripts\setup.ps1 again." `
-            "فشل الإعداد — راجع الرسائل أعلاه ثم أعد تشغيل scripts\setup.ps1." Red
+            "ffmpeg is missing from this package. Extract the zip again into a fresh folder." `
+            "ffmpeg غير موجود في هذه الحزمة. فكّ ضغط الملف مرة أخرى في مجلد جديد." Red
         exit 4
     }
-}
-
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    # First start only: strip the Mark-of-the-Web Windows puts on files
+    # that came out of a downloaded zip — blocked DLLs fail to load.
+    $unblocked = Join-Path $Root "data\.unblocked"
+    if (-not (Test-Path $unblocked)) {
+        Write-Bilingual `
+            "First start — unblocking files that came from a zip (about a minute, once)." `
+            "أول تشغيل — إزالة حظر الملفات القادمة من ملف مضغوط (حوالي دقيقة، مرة واحدة)." Cyan
+        Get-ChildItem -Path $Root -Recurse -File -Force `
+            -ErrorAction SilentlyContinue |
+            Unblock-File -ErrorAction SilentlyContinue
+        New-Item -ItemType File -Force -Path $unblocked | Out-Null
+    }
+    # Core AI models — first run downloads ~600 MB; later runs finish in
+    # seconds with "already present". Optional models download in-app.
     Write-Bilingual `
-        "'uv' is not installed or not on PATH. Install it once (see README.md), then run again." `
-        "أداة «uv» غير مثبتة أو غير موجودة في PATH. ثبّتها مرة واحدة (راجع README.md) ثم أعد المحاولة." Red
-    exit 5
-}
-
-if (Test-NeedUvSync -Root $Root) {
-    Write-Host "== uv sync =="
-    & uv sync
+        "Checking AI models — the first run downloads about 600 MB once." `
+        "التحقق من نماذج الذكاء الاصطناعي — أول تشغيل ينزّل حوالي 600 ميغابايت مرة واحدة." Cyan
+    & $BundledPython (Join-Path $Root "scripts\prefetch_models.py")
     if ($LASTEXITCODE -ne 0) {
         Write-Bilingual `
-            "uv sync failed — run scripts\setup.ps1 to repair." `
-            "فشل uv sync — شغّل scripts\setup.ps1 للإصلاح." Red
+            "Some models could not be downloaded yet — you can retry inside the app." `
+            "تعذّر تنزيل بعض النماذج الآن — يمكنك إعادة المحاولة من داخل التطبيق."
+    }
+    $PythonExe = $BundledPython
+} else {
+    # ---- repair checks (dev install) ------------------------------------------
+    $NeedSetup = $false
+    if (-not (Test-Path $VenvPython)) {
+        $NeedSetup = $true
+    }
+    if (-not (Test-Path (Join-Path $Root "tools\ffmpeg\bin\ffmpeg.exe"))) {
+        $NeedSetup = $true
+    }
+    if (-not (Test-Path (Join-Path $Root "tools\ffmpeg\bin\ffprobe.exe"))) {
+        $NeedSetup = $true
+    }
+    if ($NeedSetup) {
+        Write-Bilingual `
+            "First-time setup (or repair) — this downloads what is missing and can take a while." `
+            "الإعداد لأول مرة (أو الإصلاح) — ينزّل ما هو ناقص وقد يستغرق بعض الوقت." Cyan
+        $setup = Join-Path $Root "scripts\setup.ps1"
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $setup
+        if ($LASTEXITCODE -ne 0) {
+            Write-Bilingual `
+                "Setup failed — see the messages above, then run scripts\setup.ps1 again." `
+                "فشل الإعداد — راجع الرسائل أعلاه ثم أعد تشغيل scripts\setup.ps1." Red
+            exit 4
+        }
+    }
+
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+        Write-Bilingual `
+            "'uv' is not installed or not on PATH. Install it once (see README.md), then run again." `
+            "أداة «uv» غير مثبتة أو غير موجودة في PATH. ثبّتها مرة واحدة (راجع README.md) ثم أعد المحاولة." Red
         exit 5
     }
-}
 
-if (Test-StaleBuild -Root $Root) {
-    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-        Write-Bilingual `
-            "The app needs a rebuild but Node.js (npm) is missing. Install Node.js LTS once, or run scripts\setup.ps1." `
-            "التطبيق يحتاج إعادة بناء لكن Node.js (npm) غير موجود. ثبّت Node.js LTS مرة واحدة، أو شغّل scripts\setup.ps1." Red
-        exit 6
+    if (Test-NeedUvSync -Root $Root) {
+        Write-Host "== uv sync =="
+        & uv sync
+        if ($LASTEXITCODE -ne 0) {
+            Write-Bilingual `
+                "uv sync failed — run scripts\setup.ps1 to repair." `
+                "فشل uv sync — شغّل scripts\setup.ps1 للإصلاح." Red
+            exit 5
+        }
     }
-    Write-Host "== frontend build =="
-    Push-Location (Join-Path $Root "frontend")
-    try {
-        & npm run build
-        if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
-    } catch {
+
+    if (Test-StaleBuild -Root $Root) {
+        if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+            Write-Bilingual `
+                "The app needs a rebuild but Node.js (npm) is missing. Install Node.js LTS once, or run scripts\setup.ps1." `
+                "التطبيق يحتاج إعادة بناء لكن Node.js (npm) غير موجود. ثبّت Node.js LTS مرة واحدة، أو شغّل scripts\setup.ps1." Red
+            exit 6
+        }
+        Write-Host "== frontend build =="
+        Push-Location (Join-Path $Root "frontend")
+        try {
+            & npm run build
+            if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
+        } catch {
+            Pop-Location
+            Write-Bilingual `
+                "Frontend build failed — run scripts\setup.ps1 to repair." `
+                "فشل بناء الواجهة — شغّل scripts\setup.ps1 للإصلاح." Red
+            exit 6
+        }
         Pop-Location
-        Write-Bilingual `
-            "Frontend build failed — run scripts\setup.ps1 to repair." `
-            "فشل بناء الواجهة — شغّل scripts\setup.ps1 للإصلاح." Red
-        exit 6
     }
-    Pop-Location
+    $PythonExe = $VenvPython
 }
 
 # ---- start -------------------------------------------------------------------
-$PythonExe = Join-Path $Root ".venv\Scripts\python.exe"
 $proc = Start-Process -FilePath $PythonExe `
     -ArgumentList @(
         "-m", "uvicorn", "backend.main:app",
