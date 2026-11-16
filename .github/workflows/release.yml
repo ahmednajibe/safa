@@ -64,7 +64,15 @@ jobs:
           Invoke-WebRequest -UseBasicParsing `
             -Uri "https://www.7-zip.org/a/7z2408-x64.msi" `
             -OutFile tools\7z.msi
-          msiexec /a tools\7z.msi /qn TARGETDIR="$PWD\tools\7zip" | Out-Null
+          # msiexec /a lays the tree out as <TARGETDIR>\Files\7-Zip\ — wait
+          # for it, then flatten so tools\7zip\7z.exe exists (package.ps1).
+          Start-Process msiexec -Wait -ArgumentList @("/a", "$PWD\tools\7z.msi", "/qn", "TARGETDIR=$PWD\tools\7zip-msi")
+          $sz = Get-ChildItem tools\7zip-msi -Recurse -Filter 7z.exe | Select-Object -First 1
+          if (-not $sz) { throw "7z.exe not found after MSI extract" }
+          New-Item -ItemType Directory -Force tools\7zip | Out-Null
+          Copy-Item (Join-Path $sz.DirectoryName "*") tools\7zip -Recurse -Force
+          if (-not (Test-Path tools\7zip\7z.exe)) { throw "7z.exe flatten failed" }
+          if (-not (Test-Path tools\innosetup\app\ISCC.exe)) { throw "ISCC.exe missing after Inno install" }
 
       - name: optional codesign
         if: ${{ env.SIGN_PFX != '' }}
