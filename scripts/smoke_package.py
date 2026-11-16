@@ -5,7 +5,7 @@ through ``start.bat`` with a PATH stripped of uv/node/python, then checks
 /api/health + capabilities, runs a short Podcast job and fetches the
 output file. The server is stopped at the end.
 
-    uv run python scripts/smoke_package.py dist_pkg/SoundSystem-0.1.0-win64-cpu
+    uv run python scripts/smoke_package.py dist_pkg/Safa-0.1.0-win-x64-cpu-portable
     uv run python scripts/smoke_package.py dist_pkg/<name>.zip
         [--port 8795] [--models-dir DIR] [--keep] [--device cpu|gpu|auto]
 
@@ -49,6 +49,7 @@ _REQUIRED = (
     "tools/ffmpeg/bin/ffprobe.exe", "frontend/dist/index.html",
     "start.bat", "scripts/start.ps1", "scripts/launcher-lib.ps1",
     "scripts/prefetch_models.py", "README.md", "README.ar.md",
+    "Safa.exe", "portable.txt",
 )
 
 
@@ -222,7 +223,7 @@ def fetch_output(base: str, job: dict, dest_dir: Path) -> Path:
 def start_server(pkg_root: Path, port: int, env: dict, log_path: Path):
     log = log_path.open("w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(
-        [str(pkg_root / "start.bat"), "-Port", str(port), "-NoBrowser"],
+        [str(pkg_root / "start.bat"), "--port", str(port), "--no-browser"],
         cwd=str(pkg_root),
         env=env,
         stdout=log,
@@ -331,8 +332,18 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--keep-running", dest="keep", action="store_true",
                     help="leave the server up for manual poking")
     args = ap.parse_args(argv)
+    models_dir = args.models_dir
+    if models_dir is not None and not models_dir.is_absolute():
+        # A drive-relative value like ``F:models`` (backslashes eaten by
+        # an unquoted bash arg) resolves inside the package — models then
+        # re-download into <pkg>/sound_systemmodels. Fail loudly instead.
+        ap.error(
+            "--models-dir must be absolute "
+            "(quote the path; forward slashes work too): "
+            f"got {args.models_dir!s}"
+        )
     pkg = package_dir(args.package)
-    res = smoke(pkg, args.port, args.models_dir, args.device, args.keep)
+    res = smoke(pkg, args.port, models_dir, args.device, args.keep)
     print(json.dumps(res, indent=2, ensure_ascii=False))
     return 0
 

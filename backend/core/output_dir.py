@@ -123,10 +123,20 @@ def run_picker(timeout_s: float | None = None) -> str | None:
     return cp.stdout.strip() or None
 
 
-def reveal_in_explorer(path: Path) -> None:
-    """Select ``path`` in File Explorer (``explorer.exe /select,<p>`` — arg
-    list; explorer's odd exit codes are ignored by not waiting)."""
-    subprocess.Popen(["explorer.exe", f'/select,"{Path(path)}"'])
+def reveal_in_explorer(path: Path, sys_platform: str | None = None) -> None:
+    """Reveal ``path`` in the OS file manager (arg lists only — paths may
+    contain Arabic/spaces; odd opener exit codes ignored by not waiting).
+    Windows selects the file in Explorer; macOS reveals it in Finder;
+    Linux opens the containing folder (``xdg-open`` can't select a file)."""
+    plat = sys_platform if sys_platform is not None else sys.platform
+    p = Path(path)
+    if plat == "win32":
+        subprocess.Popen(["explorer.exe", f'/select,"{p}"'])
+    elif plat == "darwin":
+        subprocess.Popen(["open", "-R", str(p)])
+    else:
+        target = p if p.is_dir() else p.parent
+        subprocess.Popen(["xdg-open", str(target)])
 
 
 def _non_colliding(dst_dir: Path, name: str) -> Path:

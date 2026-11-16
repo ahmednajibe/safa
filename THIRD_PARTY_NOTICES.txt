@@ -1,0 +1,56 @@
+Safa (صفا) — Third-Party Notices
+================================
+
+Safa bundles or depends on the following open-source components. Each is
+covered by its own license; license texts ship in the source package under
+the respective project pages.
+
+Python runtime & build tools
+- CPython 3.11 (standalone builds) — PSF License
+- uv (Astral) — MIT / Apache-2.0
+- pip, setuptools — MIT
+
+Machine learning & audio
+- PyTorch, torchaudio, torchvision — BSD-3-Clause
+- ONNX Runtime / ONNX Runtime GPU — MIT
+- faster-whisper (SYSTRAN) — MIT
+- CTranslate2 — MIT
+- Silero VAD — MIT
+- DeepFilterNet / deepfilternet (vigletas/Rikorose) — MIT / Apache-2.0
+- audio-separator (nomadx) — MIT
+- demucs (Meta) — MIT
+- pedalboard (Spotify) — GPLv3
+- soundfile / libsndfile — BSD-3-Clause / LGPL-2.1
+- numpy — BSD-3-Clause
+- Hugging Face hub / tokenizers — Apache-2.0
+
+Web backend
+- FastAPI — MIT
+- Uvicorn — BSD-3-Clause
+- Pydantic — MIT
+- httpx — BSD-3-Clause
+- psutil — BSD-3-Clause
+
+Frontend
+- React — MIT
+- Vite — MIT
+- TypeScript — Apache-2.0
+
+Media
+- FFmpeg / FFprobe (gyan.dev or static builds) — LGPL-2.1-or-later /
+  GPL-2.0-or-later depending on build flags. Bundled binary distributions
+  ship their own license texts.
+
+Installer tooling
+- Inno Setup 6 — Inno Setup License (freeware)
+- 7-Zip (7zr.exe) — LGPL-2.1-or-later with unRAR restriction
+
+AI models (downloaded or imported separately; weights are not part of
+the Safa source distribution)
+- DeepFilterNet3 — MIT
+- HTDemucs (Meta) — MIT
+- faster-whisper small / large-v3-turbo (OpenAI Whisper weights) — MIT
+- Kim_Vocal_2 (audio-separator community model) — MIT
+- Silero VAD — MIT
+
+Placeholder notice: fill in exact license file paths/versions per release.

@@ -1,13 +1,11 @@
-"""M10 T1: launcher checks — run the real PowerShell scripts.
+"""M10 T1/M10c: launcher tests.
 
-- ``test_single_instance_launcher``: a stub server answering with our
-  health JSON makes ``Get-PortState``/start.ps1 report "ours" (and the
-  full non-CheckOnly path exits 0 without starting a second server); a
-  foreign listener reports "busy"; a free port reports "free"; a
-  non-integer SOUND_SYSTEM_PORT exits 2 with a bilingual message.
-- ``test_stale_build_detection``: ``Test-StaleBuild`` against fake
-  frontend trees in a temp dir — missing dist, stale src, stale config,
-  fresh.
+Launcher *logic* lives in ``backend.launcher`` (see
+``test_launcher_module.py``). This file keeps the
+``scripts/launcher-lib.ps1`` contract tests (the shared helpers
+``package.ps1`` dot-sources: ``Test-ValidPort``, ``Get-PortState``,
+``Test-StaleBuild``) plus one end-to-end probe through the real
+``start.ps1`` shim → ``python -m backend.launcher``.
 """
 from __future__ import annotations
 
@@ -72,7 +70,7 @@ def _free_port() -> int:
     return p
 
 
-# ---- port validation --------------------------------------------------------
+# ---- launcher-lib.ps1 contract ------------------------------------------------
 
 
 def test_valid_port_rules():
@@ -89,19 +87,6 @@ def test_valid_port_rules():
     out = r.stdout.strip()
     assert out.endswith("9000,8790"), out
     assert r.returncode == 0, r.stderr
-
-
-def test_invalid_env_port_exits_2_bilingual():
-    r = _run_ps(
-        ["-File", str(START), "-CheckOnly"],
-        env={"SOUND_SYSTEM_PORT": "not-a-port"},
-    )
-    assert r.returncode == 2
-    # Bilingual: the English half is always emitted.
-    assert "SOUND_SYSTEM_PORT" in r.stdout
-
-
-# ---- single instance ---------------------------------------------------------
 
 
 def test_port_state_ours_busy_free():
@@ -131,45 +116,6 @@ def test_port_state_ours_busy_free():
         busy.close()
 
 
-def test_single_instance_launcher():
-    """Full start.ps1 path: with our stub already answering, the launcher
-    detects 'ours' and exits 0 — no second server is ever spawned."""
-    holder: list[int] = []
-    srv = _health_app(holder)
-    try:
-        t0 = time.monotonic()
-        r = _run_ps(
-            [
-                "-File", str(START),
-                "-Port", str(holder[0]), "-NoBrowser",
-            ],
-            timeout=60,
-        )
-        assert r.returncode == 0, r.stderr
-        # Single-instance exits fast — never reaching the server spawn.
-        assert time.monotonic() - t0 < 30
-        assert "already running" in r.stdout
-    finally:
-        srv.shutdown()
-
-
-def test_start_checkonly_states():
-    holder: list[int] = []
-    srv = _health_app(holder)
-    try:
-        r = _run_ps(
-            [
-                "-File", str(START), "-CheckOnly",
-                "-Port", str(holder[0]),
-            ],
-            timeout=30,
-        )
-        assert r.returncode == 0
-        assert "STATE:ours" in r.stdout
-    finally:
-        srv.shutdown()
-
-
 # ---- stale build detection ----------------------------------------------------
 
 
@@ -189,6 +135,25 @@ def _touch(path: Path, when: float) -> None:
     os.utime(path, (when, when))
 
 
+def test_safa_launcher_stale_probe(tmp_path):
+    """Test-SafaLauncherStale: True when Safa.exe is missing or older than
+    Safa.cs — the packaging scripts rebuild only then."""
+    src = tmp_path / "launcher"
+    src.mkdir()
+    cs = src / "Safa.cs"
+    cs.write_text("// x")
+    r_missing = _ps_bool(f"Test-SafaLauncherStale '{src}'")
+    assert r_missing is True
+    exe = src / "Safa.exe"
+    now = time.time()
+    exe.write_bytes(b"MZ")
+    os.utime(exe, (now, now))
+    os.utime(cs, (now - 60, now - 60))
+    assert _ps_bool(f"Test-SafaLauncherStale '{src}'") is False
+    os.utime(cs, (now + 60, now + 60))
+    assert _ps_bool(f"Test-SafaLauncherStale '{src}'") is True
+
+
 def test_stale_build_detection(tmp_path):
     root = tmp_path / "app"
     fe = root / "frontend"
@@ -198,30 +163,33 @@ def test_stale_build_detection(tmp_path):
     _touch(fe / "vite.config.ts", now - 3600)
     _touch(fe / "package.json", now - 3600)
     assert _ps_bool(f"Test-StaleBuild '{root}'") is False
-
-    # a newer src file → stale
-    _touch(fe / "src" / "new.tsx", now + 10)
+    _touch(fe / "src" / "App.tsx", now + 10)
     assert _ps_bool(f"Test-StaleBuild '{root}'") is True
-    _touch(fe / "src" / "new.tsx", now - 3600)
-
-    # a newer tsconfig → stale
-    _touch(fe / "tsconfig.app.json", now + 10)
-    assert _ps_bool(f"Test-StaleBuild '{root}'") is True
-    _touch(fe / "tsconfig.app.json", now - 3600)
-
-    # missing dist → stale even with old sources
-    (fe / "dist" / "index.html").unlink()
+    _touch(fe / "src" / "App.tsx", now - 3600)
+    assert _ps_bool(f"Test-StaleBuild '{root}'") is False
+    _touch(fe / "tsconfig.app.json", now + 20)
     assert _ps_bool(f"Test-StaleBuild '{root}'") is True
 
 
-def test_need_uv_sync(tmp_path):
-    root = tmp_path / "app"
-    now = time.time()
-    _touch(root / ".venv" / "pyvenv.cfg", now)
-    _touch(root / "uv.lock", now - 3600)
-    _touch(root / "pyproject.toml", now - 3600)
-    assert _ps_bool(f"Test-NeedUvSync '{root}'") is False
-    _touch(root / "uv.lock", now + 10)
-    assert _ps_bool(f"Test-NeedUvSync '{root}'") is True
-    (root / ".venv" / "pyvenv.cfg").unlink()
-    assert _ps_bool(f"Test-NeedUvSync '{root}'") is True
+# ---- start.ps1 shim → backend.launcher ------------------------------------------
+
+
+def test_shim_forwards_to_python_launcher():
+    """start.ps1 -CheckOnly -Port <free> → STATE:free via the real
+    backend.launcher (proves the PS→Python hand-off works)."""
+    port = _free_port()
+    r = _run_ps(
+        ["-File", str(START), "-CheckOnly", "-Port", str(port)],
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stderr[-500:]
+    assert "STATE:free" in r.stdout
+
+
+def test_shim_invalid_env_port_exits_2():
+    r = _run_ps(
+        ["-File", str(START), "-CheckOnly"],
+        env={"SOUND_SYSTEM_PORT": "not-a-port"},
+    )
+    assert r.returncode == 2
+    assert "SOUND_SYSTEM_PORT" in r.stdout

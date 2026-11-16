@@ -1,0 +1,20 @@
+PackageIdentifier: Safa.Safa
+PackageVersion: "0.1.0"
+PackageLocale: en-US
+Publisher: Safa
+PublisherUrl: https://github.com/<owner>/safa
+PackageName: Safa
+PackageUrl: https://github.com/<owner>/safa
+License: MIT
+ShortDescription: Clean audio and video recordings on your own computer.
+Description: >-
+  Safa (صفا) removes noise, clicks, hum, reverb, breaths and silence from
+  audio/video recordings and transcribes speech. Everything runs locally;
+  no uploads.
+Tags:
+  - audio
+  - noise-reduction
+  - transcription
+  - whisper
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

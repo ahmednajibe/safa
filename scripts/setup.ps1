@@ -1,5 +1,6 @@
 ﻿# scripts/setup.ps1 — idempotent environment setup.
-# 1) uv sync (creates .venv with pinned Python 3.11 + all deps)
+# 1) uv sync --extra cu124 (creates .venv with pinned Python 3.11 + the
+#    CUDA 12.4 wheel set — the dev variant for this machine)
 # 2) ensure tools/ffmpeg/bin/{ffmpeg,ffprobe}.exe (downloads pinned static build)
 # 3) frontend build
 # 4) prefetch the core model set (M10) — -AllModels adds whisper_turbo +
@@ -26,8 +27,11 @@ $env:TMPDIR = $TmpDir
 $env:PYTHONUTF8 = "1"
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
-Write-Host "== uv sync =="
-uv sync
+Write-Host "== uv sync --extra cu124 =="
+# The cu124 extra selects the CUDA 12.4 torch/onnxruntime-gpu wheel set.
+# A bare `uv sync`/`uv run` would resync to the CPU baseline and silently
+# strip the GPU wheels — always pass the extra on this machine.
+uv sync --extra cu124
 if ($LASTEXITCODE -ne 0) { throw "uv sync failed ($LASTEXITCODE)" }
 
 $FfmpegDir = Join-Path $Root "tools\ffmpeg"
@@ -87,7 +91,7 @@ if (Test-Path $FrontendDir) {
 # or the app's Download buttons. A failed prefetch is a warning, not a
 # fatal error: the app downloads missing models on demand.
 Write-Host "== models =="
-$PrefetchArgs = @("run", "python", "scripts\prefetch_models.py")
+$PrefetchArgs = @("run", "--extra", "cu124", "python", "scripts\prefetch_models.py")
 if ($AllModels) { $PrefetchArgs += "--all" }
 & uv @PrefetchArgs
 if ($LASTEXITCODE -ne 0) {

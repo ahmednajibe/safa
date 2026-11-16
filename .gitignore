@@ -16,3 +16,4 @@ graphify-out/
 .pytest_tmp/
 .pw-browsers/
 dist_pkg/
+packaging/windows/launcher/Safa.exe

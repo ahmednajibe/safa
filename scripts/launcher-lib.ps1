@@ -103,7 +103,7 @@ function Test-StaleBuild {
 }
 
 # True when uv.lock / pyproject.toml changed after the venv was created
-# (or the venv is missing) → the launcher runs `uv sync` first.
+# (or the venv is missing) → the launcher runs `uv sync --extra cu124` first.
 function Test-NeedUvSync {
     param([string]$Root)
     $venv = Join-Path $Root ".venv"
@@ -112,6 +112,25 @@ function Test-NeedUvSync {
     $stamp = (Get-Item $marker).LastWriteTimeUtc
     foreach ($f in @("uv.lock", "pyproject.toml")) {
         $p = Join-Path $Root $f
+        if ((Test-Path $p) -and
+            ((Get-Item $p).LastWriteTimeUtc -gt $stamp)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+# True when Safa.exe is missing or older than its sources (Safa.cs /
+# safa.ico) — package.ps1 / build-installer.ps1 call
+# scripts/build-launcher.ps1 only then. The compiled exe is gitignored;
+# it is a build output, never committed.
+function Test-SafaLauncherStale {
+    param([string]$LauncherDir)
+    $exe = Join-Path $LauncherDir "Safa.exe"
+    if (-not (Test-Path $exe)) { return $true }
+    $stamp = (Get-Item $exe).LastWriteTimeUtc
+    foreach ($f in @("Safa.cs", "safa.ico")) {
+        $p = Join-Path $LauncherDir $f
         if ((Test-Path $p) -and
             ((Get-Item $p).LastWriteTimeUtc -gt $stamp)) {
             return $true

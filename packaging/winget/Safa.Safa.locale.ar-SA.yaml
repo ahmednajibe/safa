@@ -1,0 +1,12 @@
+PackageIdentifier: Safa.Safa
+PackageVersion: "0.1.0"
+PackageLocale: ar-SA
+Publisher: Safa
+PackageName: صفا
+License: MIT
+ShortDescription: نظّف التسجيلات الصوتية والمرئية على جهازك الخاص.
+Description: >-
+  يزيل صفا الضوضاء والنقرات والطنين والصدى والأنفاس والصمت من التسجيلات
+  الصوتية والمرئية ويفرغ الكلام نصًا. كل شيء يعمل محليًا دون رفع أي ملف.
+ManifestType: locale
+ManifestVersion: 1.6.0

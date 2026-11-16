@@ -21,9 +21,24 @@ def _exe(name: str) -> str:
     return name + ".exe" if os.name == "nt" else name
 
 
+def _ensure_executable(path: Path, is_nt: bool | None = None) -> None:
+    """Restore the +x bit a bundled POSIX binary can lose (zip extracts
+    strip modes; tars preserve them). No-op on Windows; never raises."""
+    if is_nt is None:
+        is_nt = os.name == "nt"
+    if is_nt:
+        return
+    try:
+        if not os.access(path, os.X_OK):
+            path.chmod(0o755)
+    except OSError:
+        pass
+
+
 def _find(binary: str) -> Path:
     local = TOOLS_DIR / "ffmpeg" / "bin" / _exe(binary)
     if local.exists():
+        _ensure_executable(local)
         return local
     which = shutil.which(binary)
     if which:

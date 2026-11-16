@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: astral-sh/setup-uv@60cc2b45855283f89ec62f1aba5ee88bf9ec7fc7  # v6.2.0
+        with:
+          version: "0.12.19"
+          python-version: "3.11"
+      - name: sync (cpu extra)
+        run: uv sync --extra cpu
+      - name: pytest (not slow)
+        run: uv run --extra cpu python -m pytest -m "not slow" -q
+
+  frontend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: vitest
+        working-directory: frontend
+        run: |
+          npm ci
+          npx vitest run
+      - name: build
+        working-directory: frontend
+        run: npm run build
+
+  static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - name: shell lint
+        run: |
+          sh -n install.sh
+          sh -n scripts/package-unix.sh
+      - name: dockerfile hadolint (static)
+        run: |
+          docker run --rm -i hadolint/hadolint < Dockerfile || true
+          docker run --rm -i hadolint/hadolint < Dockerfile.cuda || true

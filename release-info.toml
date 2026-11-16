@@ -1,0 +1,52 @@
+# release-info.toml — single source of truth for release metadata (M10c).
+# The app VERSION still lives in pyproject.toml only; this file carries
+# everything else the release pipeline, installers, manifests and docs
+# share so names/URLs can never drift. `<owner>` is the placeholder the
+# orchestrator fills in before publishing — grep for it to confirm.
+[app]
+name = "Safa"
+name_ar = "صفا"
+id = "safa"
+title = "Safa (صفا) — clean audio and video on your own computer"
+repo_url = "https://github.com/<owner>/safa"
+port = 8790
+
+# Minimum NVIDIA driver for the cu124 variant (CUDA 12.4).
+driver_min = 551
+
+# Every publishable artifact. {ver} renders the app version without the
+# leading "v"; {n} is the Inno disk-slice number / 7z volume suffix.
+[assets]
+online_setup        = "Safa-{ver}-win-x64-setup.exe"
+cpu_offline_setup   = "Safa-{ver}-win-x64-cpu-offline-setup.exe"
+gpu_offline_setup   = "Safa-{ver}-win-x64-gpu-offline-setup.exe"
+gpu_offline_slice   = "Safa-{ver}-win-x64-gpu-offline-setup-{n}.bin"
+cpu_portable_zip    = "Safa-{ver}-win-x64-cpu-portable.zip"
+gpu_offline_slicecount = "slicecount.txt"
+gpu_portable_7z     = "Safa-{ver}-win-x64-gpu-portable.7z.{nnn}"
+gpu_portable_sums   = "Safa-{ver}-win-x64-gpu-portable-SHA256SUMS.txt"
+gpu_portable_assemble = "assemble-gpu.bat"
+gpu_portable_7z_exe = "7z.exe"
+gpu_portable_7z_dll = "7z.dll"
+macos_tarball       = "Safa-{ver}-macos-arm64.tar.gz"
+linux_cpu_tarball   = "Safa-{ver}-linux-x64-cpu.tar.gz"
+linux_cuda_tarball  = "Safa-{ver}-linux-x64-cuda.tar.gz"
+models_core         = "Safa-models-core-{ver}.zip"
+models_all          = "Safa-models-all-{ver}.zip"
+source_zip          = "Safa-{ver}-source.zip"
+sha256sums          = "SHA256SUMS.txt"
+install_ps1         = "install.ps1"
+install_sh          = "install.sh"
+
+# Model sets for the offline packs (names from
+# backend/core/models_manifest.py). silero_vad ships inside its wheel —
+# it has no model files to pack.
+[model_packs]
+core = ["deepfilternet3", "htdemucs", "whisper_small"]
+all  = ["deepfilternet3", "htdemucs", "whisper_small", "whisper_turbo", "kim_vocal_2"]
+
+# Inno AppId GUIDs — fixed forever (the uninstaller/updater keys on them).
+[guid]
+online = "{B6C2A7E1-4F3D-4E5A-9C8B-1A2B3C4D5E6F}"
+offline_cpu = "{C7D3B8F2-5A4E-4F6B-AD9C-2B3C4D5E6F7A}"
+offline_gpu = "{D8E4C9A3-6B5F-4A7C-BEAD-3C4D5E6F7A8B}"

@@ -1,0 +1,8 @@
+# winget manifest — version descriptor (generated for <ver>; the repo URL
+# is the canonical one from release-info.toml).
+# Publish under manifests/s/Safa/Safa/<ver>/ — see release.yml notes.
+PackageIdentifier: Safa.Safa
+PackageVersion: "0.1.0"
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0

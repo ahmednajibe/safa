@@ -34,8 +34,13 @@ def _site_packages_dirs() -> list[Path]:
     return dirs
 
 
-def cuda_dll_dirs() -> list[Path]:
-    """Existing ``<site-packages>/nvidia/*/bin`` dirs. Read-only; never raises."""
+def cuda_dll_dirs(is_nt: bool | None = None) -> list[Path]:
+    """Existing ``<site-packages>/nvidia/*/{bin,lib}`` dirs — the nvidia-*
+    wheels put DLLs in ``bin`` on Windows and ``.so``s in ``lib`` on POSIX.
+    Read-only; never raises."""
+    if is_nt is None:
+        is_nt = os.name == "nt"
+    sub = "bin" if is_nt else "lib"
     dirs: list[Path] = []
     try:
         for sp in _site_packages_dirs():
@@ -43,31 +48,38 @@ def cuda_dll_dirs() -> list[Path]:
             if not nvidia.is_dir():
                 continue
             for child in sorted(nvidia.iterdir()):
-                if (child / "bin").is_dir():
-                    dirs.append(child / "bin")
+                if (child / sub).is_dir():
+                    dirs.append(child / sub)
     except Exception:
         pass
     return dirs
 
 
-def setup_cuda_dlls() -> list[Path]:
-    """Add every ``<site-packages>/nvidia/*/bin`` dir to the DLL search path.
-
-    Uses ``os.add_dll_directory`` (when present) and prepends to ``PATH``.
-    Returns the list of directories added; ``[]`` if none found. Never raises.
+def setup_cuda_dlls(is_nt: bool | None = None) -> list[Path]:
+    """Add every ``<site-packages>/nvidia/*/{bin,lib}`` dir to the loader
+    search path: ``os.add_dll_directory`` + ``PATH`` on Windows,
+    ``LD_LIBRARY_PATH`` on POSIX (``PATH`` plays no role in ``.so``
+    resolution there). Returns the dirs added; ``[]`` if none. Never raises.
     """
-    added: list[Path] = []
+    if is_nt is None:
+        is_nt = os.name == "nt"
+    pathvar = "PATH" if is_nt else "LD_LIBRARY_PATH"
     try:
-        for bin_dir in cuda_dll_dirs():
-            try:
-                if hasattr(os, "add_dll_directory"):
-                    os.add_dll_directory(str(bin_dir))
-            except OSError:
-                pass
-            os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
-            added.append(bin_dir)
+        added = cuda_dll_dirs(is_nt=is_nt)
+        if is_nt:
+            for lib_dir in added:
+                try:
+                    if hasattr(os, "add_dll_directory"):
+                        os.add_dll_directory(str(lib_dir))
+                except OSError:
+                    pass
+        if added:
+            existing = os.environ.get(pathvar, "")
+            os.environ[pathvar] = os.pathsep.join(
+                [str(d) for d in added] + ([existing] if existing else [])
+            )
     except Exception:
-        pass
+        return []
     return added
 
 

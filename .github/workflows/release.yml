@@ -1,0 +1,214 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "tag to build (must match pyproject version), e.g. v0.1.0"
+        required: true
+
+env:
+  UV_VERSION: "0.12.19"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    env:
+      # secrets cannot appear in `if:` — map to job env and test env.
+      SIGN_PFX: ${{ secrets.SIGN_PFX }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: astral-sh/setup-uv@60cc2b45855283f89ec62f1aba5ee88bf9ec7fc7  # v6.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.11"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: verify tag == pyproject version
+        id: meta
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if (-not $tag) { $tag = "${{ inputs.tag }}" }
+          $ver = (Select-String -Path pyproject.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          if ("v$ver" -ne $tag) { throw "tag $tag != pyproject version $ver" }
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: frontend build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: compile Safa.exe launcher
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-launcher.ps1 -Force
+
+      - name: fetch Inno Setup + 7-Zip into tools/
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force tools | Out-Null
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri "https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe" `
+            -OutFile tools\inno.exe
+          & tools\inno.exe /CURRENTUSER /SILENT /DIR="$PWD\tools\innosetup\app" | Out-Null
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri "https://www.7-zip.org/a/7z2408-x64.msi" `
+            -OutFile tools\7z.msi
+          msiexec /a tools\7z.msi /qn TARGETDIR="$PWD\tools\7zip" | Out-Null
+
+      - name: optional codesign
+        if: ${{ env.SIGN_PFX != '' }}
+        shell: pwsh
+        run: |
+          if ($env:SIGN_PFX) {
+            $pfx = "$env:TEMP\sign.pfx"
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX))
+            $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My
+            Set-AuthenticodeSignature -FilePath packaging\windows\launcher\Safa.exe `
+              -Certificate $cert -TimestampServer "http://timestamp.digicert.com" | Out-Null
+          }
+
+      - name: build portable packages (cpu + gpu split)
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1 -Variant cpu
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1 -Variant gpu
+
+      - name: build installers (online + cpu-offline + gpu-offline)
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Kind online
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Kind cpu
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Kind gpu
+
+      - name: build source zip + model packs
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.meta.outputs.version }}"
+          git archive --format zip -o "dist_pkg\Safa-$ver-source.zip" HEAD
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-modelpack.ps1 -All
+
+      - name: smoke-test CPU installer (silent install + health)
+        shell: pwsh
+        run: |
+          # /LOG must live under data/tmp — never inside dist_pkg (logs
+          # are not release assets).
+          New-Item -ItemType Directory -Force data\tmp | Out-Null
+          $exe = Get-ChildItem dist_pkg\*win-x64-cpu-offline-setup.exe | Select-Object -First 1
+          $inst = "data\tmp\ci-inst"
+          & $exe.FullName /VERYSILENT /NORESTART /CURRENTUSER "/DIR=$PWD\$inst" "/LOG=$PWD\data\tmp\ci-inst.log"
+          if ($LASTEXITCODE -ne 0) { Get-Content data\tmp\ci-inst.log; throw "silent install failed" }
+          uv run python scripts\smoke_package.py $inst --device cpu
+          & "$inst\unins000.exe" /VERYSILENT /NORESTART | Out-Null
+
+      - name: stage release assets
+        shell: pwsh
+        run: |
+          # Only the release-info.toml asset names are uploaded — staging
+          # dirs, extracted portable trees and logs stay out.
+          python scripts\list-release-assets.py dist_pkg --dest dist_release
+          Copy-Item install.ps1, install.sh dist_release\
+
+      - name: upload release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: windows
+          path: dist_release/
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: astral-sh/setup-uv@60cc2b45855283f89ec62f1aba5ee88bf9ec7fc7  # v6.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.11"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: frontend build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: brew ffmpeg + package tarball
+        run: |
+          brew install ffmpeg || true
+          mkdir -p tools/ffmpeg/bin
+          cp "$(brew --prefix ffmpeg)/bin/ffmpeg" "$(brew --prefix ffmpeg)/bin/ffprobe" tools/ffmpeg/bin/
+          sh scripts/package-unix.sh --variant cpu
+      - name: stage release assets
+        run: python scripts/list-release-assets.py dist_pkg --dest dist_release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: macos
+          path: dist_release/
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+      - uses: astral-sh/setup-uv@60cc2b45855283f89ec62f1aba5ee88bf9ec7fc7  # v6.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.11"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: frontend build + system ffmpeg
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          mkdir -p tools/ffmpeg/bin
+          cp "$(command -v ffmpeg)" "$(command -v ffprobe)" tools/ffmpeg/bin/
+      - name: package cpu + cuda tarballs
+        run: |
+          sh scripts/package-unix.sh --variant cpu
+          sh scripts/package-unix.sh --variant cuda
+      - name: stage release assets
+        run: python scripts/list-release-assets.py dist_pkg --dest dist_release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: linux
+          path: dist_release/
+
+  publish:
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: SHA256SUMS.txt over all merged assets
+        run: |
+          # Drop any stale sums a job uploaded, then hash every merged
+          # asset — written OUTSIDE artifacts/ first so the glob cannot
+          # pick the sums file itself. Format: "<hash>  <name>" (lower).
+          cd artifacts && rm -f SHA256SUMS.txt
+          sha256sum -- * > ../SHA256SUMS.txt && mv ../SHA256SUMS.txt .
+          cat SHA256SUMS.txt
+      - name: draft release
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda  # v2.2.1
+        with:
+          draft: true
+          files: artifacts/*
+          generate_release_notes: true

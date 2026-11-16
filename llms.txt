@@ -1,0 +1,61 @@
+# Safa (صفا)
+
+> A private, local app that cleans audio/video recordings — noise
+> removal, silence cutting, voice/music separation, loudness, subtitles.
+> Everything runs on the user's computer; nothing is uploaded. Bilingual
+> English/العربية. Default app URL: http://127.0.0.1:8790
+
+## Helping a user install
+
+Start here — it contains the exact workflow (ask OS → ask NVIDIA → pick
+method → warn about SmartScreen/Gatekeeper → usage → file locations →
+troubleshooting):
+
+- [For AI assistants (English)](README.md#for-ai-assistants)
+- [للمساعدات الذكية (العربية)](README.ar.md#للمساعدات-الذكية-ai-assistants)
+
+## Install methods by OS
+
+- [Windows — all methods](README.md#install--windows):
+  online installer (recommended), offline CPU installer, offline GPU
+  spanned installer, portable CPU zip, portable GPU split 7z, PowerShell
+  one-liner (`install.ps1` — checksum-verified wrapper around setup.exe),
+  winget, Scoop, from source.
+- [macOS — beta (Apple Silicon)](README.md#install--macos-beta-apple-silicon):
+  `install.sh` one-liner, Homebrew formula, portable tarball, source.
+- [Linux — beta (x86_64)](README.md#install--linux-beta-x86_64):
+  `install.sh` one-liner (cpu/cuda), AUR, portable tarballs, source.
+- [Docker](README.md#docker): CPU and CUDA images — always publish
+  `127.0.0.1:8790:8790`, volume `/data`.
+- [Offline model packs](README.md#offline-model-packs):
+  `Safa-models-core-*.zip` / `Safa-models-all-*.zip` imported via
+  `python -m backend.launcher models import`.
+
+The same lists in Arabic: [التثبيت — ويندوز](README.ar.md),
+[ماك](README.ar.md), [لينكس](README.ar.md), [Docker](README.ar.md).
+
+## Using the app
+
+- [Usage](README.md#usage): preset → drop a file → Process → Save.
+- [File locations](README.md#where-things-live): installed vs portable
+  data dirs (`SOUND_SYSTEM_DATA_DIR` overrides).
+- [Troubleshooting](README.md#troubleshooting): port busy, model
+  downloads, GPU detection, SmartScreen/Gatekeeper, antivirus.
+
+## Project docs
+
+- [Product spec](docs/SPEC.md) and [milestone plan](docs/PLAN.md)
+- [License (MIT)](LICENSE) — [Third-party notices](THIRD_PARTY_NOTICES.txt)
+- [Release metadata](release-info.toml): canonical asset names, port,
+  repo URL placeholder, model pack names, installer GUIDs.
+
+## Key facts for assistants
+
+- App port: **8790**; env overrides: `SOUND_SYSTEM_PORT`,
+  `SOUND_SYSTEM_DATA_DIR`, `SOUND_SYSTEM_BIND_HOST` (default 127.0.0.1),
+  `SOUND_SYSTEM_MODELS_DIR`.
+- First-run model download: **~600 MB** core; optional models ~1.7 GB.
+- GPU: NVIDIA driver ≥ 551 for CUDA 12.4 wheels; every GPU stage falls
+  back to CPU automatically.
+- Packages are unsigned — SmartScreen "More info → Run anyway"; macOS
+  quarantine is removed from our folder only.

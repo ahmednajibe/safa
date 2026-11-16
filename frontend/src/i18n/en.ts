@@ -41,7 +41,7 @@ const op = (
 
 export const en = {
   lang: { button: "العربية" },
-  appName: "Sound System",
+  appName: "Safa (صفا)",
   topBar: {
     history: "History",
     lang: "العربية",

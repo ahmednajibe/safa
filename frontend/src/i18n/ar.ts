@@ -13,7 +13,7 @@ const op = (
 
 export const ar: Dict = {
   lang: { button: "English" },
-  appName: "Sound System",
+  appName: "صفا",
   topBar: {
     history: "السجل",
     lang: "English",

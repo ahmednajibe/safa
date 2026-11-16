@@ -1,6 +1,7 @@
 """FastAPI app factory (SPEC §4/§5): init DB, mount API routers, serve SPA."""
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
@@ -23,7 +24,7 @@ from backend.api.settings import router as settings_router
 from backend.core.logs import setup_app_logging
 from backend.core.messages import MESSAGES as _MSG
 from backend.core.models_manifest import configure_model_env
-from backend.core.paths import ROOT, redirect_temp_env
+from backend.core.paths import ROOT, ensure_data_marker, redirect_temp_env
 from backend.core.retention import RetentionSweeper, retention_days
 from backend.core.settings import Settings, get_settings
 from backend.db import init_db
@@ -38,7 +39,7 @@ _FALLBACK_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sound System</title>
+<title>Safa (صفا)</title>
 <style>
   body{background:#000;color:#fff;font:16px/1.5 system-ui,sans-serif;
        display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
@@ -48,7 +49,7 @@ _FALLBACK_HTML = """<!doctype html>
 </style>
 </head>
 <body><main>
-<h1>Sound System</h1>
+<h1>Safa (صفا)</h1>
 <p>Frontend not built — run scripts/setup.ps1</p>
 <p>The API is still up: <a href="/api/health">/api/health</a></p>
 </main></body>
@@ -93,6 +94,28 @@ def _same_origin(url: str | None, port: int) -> bool:
     if not url:
         return False
     return _loopback_host(urlsplit(url).netloc, port)
+
+
+_LOOPBACK_BINDS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _warn_if_wide_bind(s: Settings) -> None:
+    """A non-loopback bind on a native install is almost always a mistake —
+    log a loud warning (visibility only; the Host/Origin guard below is
+    unchanged). ``SOUND_SYSTEM_IN_CONTAINER=1`` marks the Docker image's
+    intentional ``0.0.0.0`` bind."""
+    host = (s.host or "").strip().lower()
+    if not host or host in _LOOPBACK_BINDS:
+        return
+    if os.environ.get("SOUND_SYSTEM_IN_CONTAINER", "").strip() == "1":
+        return
+    logging.getLogger("sound_system").warning(
+        "SOUND_SYSTEM_BIND_HOST=%s — the API will listen on a "
+        "network-reachable interface, not just this computer. Native "
+        "installs should keep 127.0.0.1 (inside containers set "
+        "SOUND_SYSTEM_IN_CONTAINER=1 to silence this).",
+        host,
+    )
 
 
 def _prepend_ffmpeg_dir() -> None:
@@ -148,10 +171,9 @@ async def _lifespan(app: FastAPI):
         lambda: set(media_api._PREP_THREADS),
     )
     app.state.sweeper.start()
-    import logging
-
     logging.getLogger("sound_system").info(
-        "app started on 127.0.0.1:%s", app.state.settings.port
+        "app started on %s:%s",
+        app.state.settings.host, app.state.settings.port,
     )
     try:
         yield
@@ -164,12 +186,14 @@ async def _lifespan(app: FastAPI):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     s = settings or get_settings()
+    _warn_if_wide_bind(s)
+    ensure_data_marker()
     configure_model_env()
     redirect_temp_env(s.data_dir)
     _prepend_ffmpeg_dir()
     init_db(s.db_path)
     setup_app_logging(s.data_dir)
-    app = FastAPI(title="Sound System", lifespan=_lifespan)
+    app = FastAPI(title="Safa", lifespan=_lifespan)
     app.state.settings = s
     app.state.store = JobStore(s.db_path)
     app.state.supervisor = Supervisor(app.state.store, s)

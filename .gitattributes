@@ -1,0 +1,6 @@
+# POSIX scripts must keep LF on every checkout (Windows autocrlf would
+# break the shebang / sh parsing in tarballs and Docker builds).
+*.sh text eol=lf
+start.command text eol=lf
+packaging/aur/PKGBUILD text eol=lf
+packaging/homebrew/*.rb text eol=lf

@@ -1,0 +1,38 @@
+# docker-compose.yml — convenience for `docker compose up`.
+# The contract the tests check: host-side binding is ALWAYS
+# 127.0.0.1:8790:8790 (never 0.0.0.0) and data lives in the `safa-data`
+# volume at /data (SOUND_SYSTEM_DATA_DIR=/data).
+services:
+  safa-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: safa:cpu
+    ports:
+      - "127.0.0.1:8790:8790"
+    volumes:
+      - safa-data:/data
+    environment:
+      SOUND_SYSTEM_DATA_DIR: /data
+
+  safa-cuda:
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    image: safa:cuda
+    ports:
+      - "127.0.0.1:8790:8790"
+    volumes:
+      - safa-data:/data
+    environment:
+      SOUND_SYSTEM_DATA_DIR: /data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  safa-data:

@@ -40,21 +40,74 @@ def test_dist_pkg_gitignored():
     ).splitlines()
 
 
-def test_cpu_project_has_no_cuda_deps():
-    assert CPU_PROJ.is_file()
-    proj = tomllib.loads(CPU_PROJ.read_text(encoding="utf-8"))
-    deps = " ".join(proj["project"]["dependencies"])
+def test_cpu_extra_has_no_cuda_deps():
+    """M10c: one project, one lock — the `cpu` extra must not pull CUDA."""
+    proj = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    deps = " ".join(proj["project"]["optional-dependencies"]["cpu"])
     assert "onnxruntime-gpu" not in deps
     assert "nvidia-" not in deps
     assert "+cu" not in deps
     assert 'onnxruntime==1.20.0' in deps
     assert 'torch==2.5.1' in deps
-    # the separate project is locked for reproducible builds
-    assert (CPU_PROJ.parent / "uv.lock").is_file()
+    # the separate packaging/cpu project is gone — one lock covers both
+    assert not CPU_PROJ.exists()
 
 
-def test_start_script_has_portable_branch():
+# ---- Safa.exe build (compiled artifact, never committed) -----------------------
+
+
+def test_launcher_exe_is_gitignored():
+    """Compiled binaries must never be committed — Safa.exe is built."""
+    r = subprocess.run(
+        ["git", "check-ignore", "-v", "packaging/windows/launcher/Safa.exe"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert r.returncode == 0, (
+        "packaging/windows/launcher/Safa.exe is not gitignored")
+
+
+def test_build_launcher_script_exists_and_parses():
+    ps1 = ROOT / "scripts" / "build-launcher.ps1"
+    assert ps1.is_file(), "scripts/build-launcher.ps1 missing"
+    r = subprocess.run(
+        [
+            "powershell", "-NoProfile", "-Command",
+            "$e=$null;"
+            "[System.Management.Automation.PSParser]::Tokenize("
+            f"(Get-Content -Raw '{ps1}'),[ref]$e) > $null;"
+            "$e.Count",
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert r.stdout.strip() == "0", r.stderr + r.stdout
+
+
+def test_build_scripts_use_build_launcher_not_inline_csc():
+    """package.ps1 / build-installer.ps1 / release.yml build Safa.exe via
+    scripts/build-launcher.ps1 — no inline csc anywhere."""
+    pkg = (ROOT / "scripts" / "package.ps1").read_text(encoding="utf-8-sig")
+    inst = (ROOT / "scripts" / "build-installer.ps1").read_text(
+        encoding="utf-8-sig")
+    rel = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8")
+    for name, text in (("package.ps1", pkg), ("build-installer.ps1", inst),
+                       ("release.yml", rel)):
+        assert "build-launcher.ps1" in text, name
+        assert "csc.exe" not in text, f"{name}: inline csc remains"
+
+
+def test_launcher_stale_probe_in_launcher_lib():
+    lib = (ROOT / "scripts" / "launcher-lib.ps1").read_text(
+        encoding="utf-8-sig")
+    assert "Test-SafaLauncherStale" in lib
+
+
+def test_start_script_forwards_to_backend_launcher():
+    """start.ps1 is a thin shim; the portable branch lives in
+    backend/launcher.py (bundled python -> -m backend.launcher)."""
     src = (ROOT / "scripts" / "start.ps1").read_text(encoding="utf-8-sig")
     assert "python\\python.exe" in src
-    assert "Unblock-File" in src
-    assert "prefetch_models.py" in src
+    assert "backend.launcher" in src
+    launcher = (ROOT / "backend" / "launcher.py").read_text(encoding="utf-8")
+    assert "_unblock_mark_of_the_web" in launcher
+    assert "prefetch_models" in launcher
