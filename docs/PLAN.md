@@ -22,6 +22,7 @@ Each milestone gets a detailed task plan in `docs/superpowers/plans/` written ri
 | M9b | **UI waveform & A/B**: wavesurfer peaks, preview region, A/B toggle (Tab) with playhead translation, video sync, cut regions | browser walkthrough + design review passes |
 | M10 | **Hardening**: retention cleanup, disk check, `prefetch_models.py`, offline check, README, final UI polish review | fresh `start.bat` works; offline run works |
 | M10b | **Portable package for friends** (CPU + GPU builds, no Node/uv needed) | clean-folder smoke test, sizes documented |
+| M10c | **Distribution as Safa (صفا)**: C# launcher .exe, Inno per-user installer + one-line install.ps1 / install.sh (runtime via uv, CPU/GPU chosen on the machine), installed vs portable data dir, macOS/Linux beta, AI-friendly bilingual README + llms.txt, release workflow (not run) | silent install/upgrade/uninstall test, exe lifecycle, README/llms sync |
 | R2 | **Final full review** (user request, after M10 = everything finished): graphify map of the whole project (backend + frontend + tests + scripts) → Claude line-by-line + test-quality review + Argon (+ Astra if quota) independent review → one SWE fix round → final end-to-end run on the user's real recordings | all findings fixed or explicitly accepted; full suite green; user listens to final outputs |
 
 UI design direction is decided in a dedicated design round (Claude + Astra + Argon, using design skills) and written to `docs/UI_DESIGN.md` before M9a.
