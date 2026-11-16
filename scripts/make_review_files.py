@@ -1002,6 +1002,11 @@ def _m5(recordings: list[Path]) -> list[dict]:
 
 
 def main() -> int:
+    # Arabic transcripts in the report: a redirected stdout on Windows
+    # defaults to cp1252 and would crash the final diff print.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     recordings = sorted(REAL.glob("*.m4a"))
     if not recordings:
         print(f"no real recordings in {REAL} — nothing to do")
