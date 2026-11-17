@@ -8,6 +8,11 @@ on:
       tag:
         description: "tag to build (must match pyproject version), e.g. v0.1.0"
         required: true
+      only:
+        description: "build only this platform (debug a single job without the full matrix)"
+        type: choice
+        options: [all, windows]
+        default: all
 
 env:
   UV_VERSION: "0.12.19"
@@ -36,8 +41,9 @@ jobs:
         id: meta
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          if (-not $tag) { $tag = "${{ inputs.tag }}" }
+          # manual runs start from a branch, so the input tag wins there
+          $tag = "${{ inputs.tag }}"
+          if (-not $tag) { $tag = "${{ github.ref_name }}" }
           $ver = (Select-String -Path pyproject.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
           if ("v$ver" -ne $tag) { throw "tag $tag != pyproject version $ver" }
           "version=$ver" >> $env:GITHUB_OUTPUT
@@ -135,10 +141,19 @@ jobs:
           New-Item -ItemType Directory -Force data\tmp | Out-Null
           $exe = Get-ChildItem dist_pkg\*win-x64-cpu-offline-setup.exe | Select-Object -First 1
           $inst = "data\tmp\ci-inst"
-          & $exe.FullName /VERYSILENT /NORESTART /CURRENTUSER "/DIR=$PWD\$inst" "/LOG=$PWD\data\tmp\ci-inst.log"
-          if ($LASTEXITCODE -ne 0) { Get-Content data\tmp\ci-inst.log; throw "silent install failed" }
+          if (-not $exe) { throw "no *win-x64-cpu-offline-setup.exe in dist_pkg" }
+          # The Inno setup is a GUI-subsystem exe: a bare `&` returns at once
+          # (no wait, $LASTEXITCODE unset), so wait explicitly for the code.
+          $p = Start-Process -FilePath $exe.FullName -Wait -PassThru -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
+            "/DIR=`"$PWD\$inst`"", "/LOG=`"$PWD\data\tmp\ci-inst.log`"")
+          if ($p.ExitCode -ne 0) {
+            if (Test-Path data\tmp\ci-inst.log) { Get-Content data\tmp\ci-inst.log -Tail 80 }
+            throw "silent install failed (exit $($p.ExitCode))"
+          }
           uv run --no-sync python scripts\smoke_package.py $inst --device cpu
-          & "$inst\unins000.exe" /VERYSILENT /NORESTART | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "installed-package smoke test failed" }
+          Start-Process -FilePath "$inst\unins000.exe" -Wait -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
 
       - name: stage release assets
         shell: pwsh
@@ -156,6 +171,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    if: ${{ inputs.only != 'windows' }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
@@ -187,6 +203,7 @@ jobs:
           path: dist_release/
 
   linux:
+    if: ${{ inputs.only != 'windows' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
@@ -223,6 +240,7 @@ jobs:
   wheel:
     # safa-audio bootstrap wheel + sdist — built here and attached to the
     # draft release; PyPI publish stays OFF (see commented step below).
+    if: ${{ inputs.only != 'windows' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
