@@ -145,6 +145,19 @@ def _warn(msg: str) -> None:
           "the app still runs.", flush=True)
 
 
+def windows_powershell_env(env=None) -> dict:
+    """Environment for a ``powershell`` (5.1) child: without PSModulePath.
+
+    Started from PowerShell 7 (pwsh terminals, CI), 5.1 inherits pwsh's
+    module path, loads the wrong Microsoft.PowerShell.Utility and loses
+    script cmdlets such as Get-FileHash. Without the variable 5.1 builds
+    its own default path."""
+    out = dict(os.environ if env is None else env)
+    for k in [k for k in out if k.upper() == "PSMODULEPATH"]:
+        del out[k]
+    return out
+
+
 def maybe_create_desktop_shortcut(
     root: Path,
     data_dir: Path | None = None,
@@ -168,7 +181,7 @@ def maybe_create_desktop_shortcut(
         if marker.is_file():
             return "skipped"
         target, icon = _target_and_icon(root)
-        child_env = dict(env)
+        child_env = windows_powershell_env(env)
         child_env["SAFA_LNK_TARGET"] = str(target)
         child_env["SAFA_LNK_WORKDIR"] = str(root)
         child_env["SAFA_LNK_ICON"] = str(icon)

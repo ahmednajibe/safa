@@ -352,12 +352,15 @@ def _run_setup_repair(root: Path) -> bool:
     bilingual("setup_repair", color="cyan")
     setup_ps1 = root / "scripts" / "setup.ps1"
     if os.name == "nt" and setup_ps1.is_file():
+        from backend.core.shortcut import windows_powershell_env
+
         rc = subprocess.run(
             [
                 "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", str(setup_ps1),
             ],
             cwd=str(root),
+            env=windows_powershell_env(),
         ).returncode
         return rc == 0
     extra = _uv_extra()

@@ -210,7 +210,7 @@ def test_bucket_code_boundaries():
 # ---- operations: unavailable_code + conflict envelope ----------------------------
 
 
-def test_operations_carry_unavailable_code(tmp_path):
+def test_operations_carry_unavailable_code(tmp_path, models_present):
     ops = _client(tmp_path).get("/api/operations").json()["operations"]
     for op in ops:
         assert "unavailable_code" in op

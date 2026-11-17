@@ -14,6 +14,16 @@ jobs:
         with:
           version: "0.12.19"
           python-version: "3.11"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: frontend build (wheel payload + SPA-serving tests need dist/)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
       - name: sync (cpu extra)
         run: uv sync --extra cpu
       - name: fetch ffmpeg 7.1.1 into tools/ffmpeg (sha256-pinned)

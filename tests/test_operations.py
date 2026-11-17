@@ -8,6 +8,7 @@ import backend.core.models_manifest as manifest
 from backend.core.settings import Settings
 from backend.main import create_app
 from tests.client import make_client
+from tests.conftest import patch_models_present, skip_on_ci_machine_check
 
 
 def _client(tmp_path):
@@ -218,8 +219,11 @@ def test_resolve_disabled_reasons(tmp_path, monkeypatch):
     assert eff.disabled["enhance_ai"]["code"] == "planned"
     assert eff.disabled["enhance_ai"]["message"] == "Coming later"
 
-    # generic unavailable → machine reason
-    eff = resolve({"separate": {}}, {"separate": False})
+    # generic unavailable → machine reason (models reported present, so
+    # the reason is the machine, not a missing download)
+    with monkeypatch.context() as m:
+        patch_models_present(m)
+        eff = resolve({"separate": {}}, {"separate": False})
     assert eff.disabled["separate"]["message"] == (
         "Not available on this computer"
     )
@@ -287,6 +291,7 @@ def test_operations_endpoint(tmp_path):
     }
 
 
+@skip_on_ci_machine_check
 def test_operations_availability_on_this_machine(tmp_path):
     """All non-planned ops available here; planned ones report 'planned'."""
     ops = {o["id"]: o for o in _client(tmp_path).get("/api/operations").json()["operations"]}
@@ -331,7 +336,7 @@ def test_resolve_endpoint_ok(tmp_path):
     assert dict((o["id"], o["params"]) for o in body["ops"])["loudness"]["target"] == "youtube"
 
 
-def test_resolve_endpoint_karaoke(tmp_path):
+def test_resolve_endpoint_karaoke(tmp_path, models_present):
     r = _client(tmp_path).post(
         "/api/operations/resolve",
         json={"ops": {

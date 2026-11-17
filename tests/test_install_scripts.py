@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.core.shortcut import windows_powershell_env
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -145,7 +147,7 @@ def _ps_run(script: str) -> subprocess.CompletedProcess:
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
          "-Command", script],
         capture_output=True, text=True, timeout=120, encoding="utf-8",
-        errors="replace",
+        errors="replace", env=windows_powershell_env(),
     )
 
 

@@ -4,6 +4,8 @@ import sys
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import skip_on_ci_machine_check
+
 from backend.core.paths import ROOT
 from backend.core.settings import Settings
 from backend.main import create_app
@@ -66,6 +68,7 @@ def test_detect_capabilities_cached_and_refresh():
     assert b is not a
 
 
+@skip_on_ci_machine_check
 def test_detect_models_present():
     """All M1-downloaded models detected on this machine."""
     from backend.core.capabilities import detect_capabilities

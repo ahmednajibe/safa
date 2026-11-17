@@ -213,6 +213,10 @@ def test_denoise_op_reports_cpu_fallback(tmp_path, monkeypatch):
 def test_denoise_worker_stage_record_on_oom(tmp_path, monkeypatch):
     """The persisted stage record shows the cpu fallback + warning."""
     _fake_oom_engine(monkeypatch)
+    # The stage must be planned on gpu for the OOM path to run at all —
+    # on a GPU-less box (CI) resolve_device would pick cpu up front.
+    import backend.pipeline.device as device_mod
+    monkeypatch.setattr(device_mod, "gpu_usable", lambda caps: True)
     from backend.db import connect, init_db
     from backend.jobs.store import JobStore
     from backend.media.probe import probe

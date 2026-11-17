@@ -184,8 +184,11 @@ def test_vfr_input_stays_in_sync(tmp_path):
 
 
 def test_gpu_job_uses_nvenc(tmp_path):
-    if not has_encoder("h264_nvenc"):
-        pytest.skip("h264_nvenc not available")
+    # ffmpeg builds list h264_nvenc even with no NVIDIA GPU/driver (CI) —
+    # the app then correctly falls back to libx264, so require a driver.
+    import shutil
+    if not has_encoder("h264_nvenc") or not shutil.which("nvidia-smi"):
+        pytest.skip("h264_nvenc not usable (no NVIDIA driver)")
     tl = Timeline.identity(10.0).keep([(1.0, 5.0)])
     audio = _sine_wav(tmp_path / "a.wav", 4.0)
     _, enc = render_video(

@@ -72,6 +72,17 @@ def _fake_app(tmp_path: Path, stub: str) -> Path:
         os.link(real_py, dst)
     except OSError:
         shutil.copy(real_py, dst)
+    # A lone python.exe only runs where its DLL + stdlib are findable via
+    # PATH/registry (a dev box with a system install). Make the fake
+    # package self-contained like a real one: DLLs beside the exe and a
+    # ._pth pointing at the base stdlib plus the app root (`..`).
+    base = real_py.parent
+    for dll in base.glob("*.dll"):
+        shutil.copy(dll, app / "python" / dll.name)
+    (app / "python" / "python._pth").write_text(
+        "\n".join([str(base / "Lib"), str(base / "DLLs"), ".."]) + "\n",
+        encoding="utf-8",
+    )
     return app
 
 

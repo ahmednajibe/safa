@@ -131,7 +131,7 @@ def test_post_job_disabled_ops_reported(tmp_path):
     assert body["ops"] == []
 
 
-def test_post_job_karaoke_conflict_disables_denoise(tmp_path):
+def test_post_job_karaoke_conflict_disables_denoise(tmp_path, models_present):
     c = _client(tmp_path)
     mid = _upload(c, ARABIC_WAV)
     r = _post_job(
@@ -274,6 +274,11 @@ def test_cancel_running_job_kills_worker(tmp_path):
                 break
             time.sleep(0.1)
         assert store.get(jid).state == "cancelled"
+        # the kill is asynchronous: "cancelled" can land a moment before
+        # the process is gone on a slow machine (CI) — allow a grace period
+        deadline = time.monotonic() + 20
+        while psutil.pid_exists(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
         assert not psutil.pid_exists(pid), (
             "worker process survived the cancel"
         )

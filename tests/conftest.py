@@ -45,3 +45,47 @@ def real_dir():
     if not REAL_DIR.is_dir():
         pytest.skip("tests/fixtures/real missing")
     return REAL_DIR
+
+
+# Modules that bind ``detect_capabilities`` by name at import time —
+# patching only backend.core.capabilities would miss them.
+_CAPS_IMPORTERS = (
+    "backend.core.capabilities", "backend.api.jobs", "backend.api.operations",
+    "backend.api.estimate", "backend.api.health", "backend.jobs.store",
+    "backend.pipeline.runner", "backend.pipeline.estimates",
+)
+
+
+def all_models_caps():
+    """Real capabilities of this machine, but with every model reported as
+    downloaded — for tests of rules/API contracts, not of disk state (CI
+    has no ~2.3 GB models tree)."""
+    from dataclasses import replace
+
+    from backend.core.capabilities import refresh_capabilities
+
+    caps = refresh_capabilities()
+    return replace(caps, models={k: True for k in caps.models})
+
+
+def patch_models_present(mp):
+    import importlib
+
+    fake = all_models_caps()
+    for name in _CAPS_IMPORTERS:
+        mod = importlib.import_module(name)
+        if hasattr(mod, "detect_capabilities"):
+            mp.setattr(mod, "detect_capabilities", lambda: fake)
+    return fake
+
+
+@pytest.fixture
+def models_present(monkeypatch):
+    """Every model reported present, independent of the models/ tree."""
+    return patch_models_present(monkeypatch)
+
+
+skip_on_ci_machine_check = pytest.mark.skipif(
+    bool(os.environ.get("CI")),
+    reason="checks this machine's downloaded models; CI has none",
+)
