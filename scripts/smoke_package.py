@@ -8,6 +8,11 @@ output file. The server is stopped at the end.
     uv run python scripts/smoke_package.py dist_pkg/Safa-0.1.0-win-x64-cpu-portable
     uv run python scripts/smoke_package.py dist_pkg/<name>.zip
         [--port 8795] [--models-dir DIR] [--keep] [--device cpu|gpu|auto]
+        [--health-only]
+
+An installed tree (``installed.json`` present, as the Inno setup writes)
+is accepted without ``portable.txt``. ``--health-only`` stops after the
+health + frontend checks (CI: no generated speech fixture there).
 
 ``--models-dir`` sets SOUND_SYSTEM_MODELS_DIR inside the packaged app so
 the smoke run points at an existing models/ tree instead of downloading
@@ -258,7 +263,11 @@ def stop_server(proc, port: int) -> None:
 
 
 def check_layout(pkg_root: Path) -> list[str]:
-    return [p for p in _REQUIRED if not (pkg_root / p).is_file()]
+    # installers strip portable.txt on purpose and write installed.json
+    installed = (pkg_root / "installed.json").is_file()
+    return [p for p in _REQUIRED
+            if not (installed and p == "portable.txt")
+            and not (pkg_root / p).is_file()]
 
 
 def smoke(
@@ -267,6 +276,7 @@ def smoke(
     models_dir: Path | None,
     device: str = "auto",
     keep: bool = False,
+    health_only: bool = False,
 ) -> dict:
     pkg_root = pkg_root.resolve()
     missing = check_layout(pkg_root)
@@ -302,6 +312,9 @@ def smoke(
         # frontend serving
         with urllib.request.urlopen(_req(base, "/"), timeout=10) as r:
             assert "text/html" in r.headers.get("Content-Type", "")
+        if health_only:
+            result["ok"] = True
+            return result
         # job device: auto follows what the app itself reports
         job_device = device
         if job_device == "auto":
@@ -331,6 +344,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--device", choices=["auto", "cpu", "gpu"], default="auto")
     ap.add_argument("--keep-running", dest="keep", action="store_true",
                     help="leave the server up for manual poking")
+    ap.add_argument("--health-only", action="store_true",
+                    help="stop after health + frontend checks (no job)")
     args = ap.parse_args(argv)
     models_dir = args.models_dir
     if models_dir is not None and not models_dir.is_absolute():
@@ -343,7 +358,8 @@ def main(argv: list[str]) -> int:
             f"got {args.models_dir!s}"
         )
     pkg = package_dir(args.package)
-    res = smoke(pkg, args.port, models_dir, args.device, args.keep)
+    res = smoke(pkg, args.port, models_dir, args.device, args.keep,
+                args.health_only)
     print(json.dumps(res, indent=2, ensure_ascii=False))
     return 0
 

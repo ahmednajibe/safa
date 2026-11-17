@@ -260,3 +260,28 @@ def test_import_accepts_genuine_pinned_file(tmp_path):
     dst = tmp_path / "dst"
     assert model_pack.import_pack(z, models_dir=dst) == 0
     assert (dst / rels[0]).is_file()
+
+
+def test_named_model_with_no_files_refuses(tmp_path):
+    # CI once had no models/ tree: an empty "offline" pack must fail loudly
+    from backend.core.models_manifest import MODELS
+
+    name = next(k for k, v in MODELS.items() if v.source != "bundled")
+    empty = tmp_path / "models empty"
+    empty.mkdir()
+    with pytest.raises(FileNotFoundError):
+        model_pack.stage_pack(tmp_path / "stage", empty, [name])
+    with pytest.raises(FileNotFoundError):
+        model_pack.build_pack(tmp_path / "p.zip", models_dir=empty,
+                              names=[name])
+
+
+def test_bundled_model_with_no_files_is_fine(tmp_path):
+    from backend.core.models_manifest import MODELS
+
+    bundled = [k for k, v in MODELS.items() if v.source == "bundled"]
+    if not bundled:
+        pytest.skip("no bundled models in manifest")
+    empty = tmp_path / "m"
+    empty.mkdir()
+    assert model_pack.stage_pack(tmp_path / "s", empty, bundled)["files"] == 0

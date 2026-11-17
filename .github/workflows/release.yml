@@ -113,6 +113,14 @@ jobs:
         # package scripts call `uv run --no-sync` — the venv must exist.
         run: uv sync --frozen --no-dev --extra cpu
 
+      - name: download all models (offline installers + model packs bundle them)
+        shell: pwsh
+        # models/ is gitignored — without this the "offline" installers
+        # and Safa-models-*.zip would ship empty.
+        run: |
+          uv run --no-sync python scripts\prefetch_models.py --all
+          if ($LASTEXITCODE -ne 0) { throw "model prefetch failed" }
+
       - name: build portable packages (cpu + gpu split)
         shell: pwsh
         run: |
@@ -151,8 +159,12 @@ jobs:
             if (Test-Path data\tmp\ci-inst.log) { Get-Content data\tmp\ci-inst.log -Tail 80 }
             throw "silent install failed (exit $($p.ExitCode))"
           }
-          uv run --no-sync python scripts\smoke_package.py $inst --device cpu
-          if ($LASTEXITCODE -ne 0) { throw "installed-package smoke test failed" }
+          # test the models the installer bundled, not the build tree's
+          uv run --no-sync python scripts\smoke_package.py $inst --device cpu --health-only --models-dir "$PWD\$inst\models"
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content "$inst\data\smoke-start.log" -Tail 120 -ErrorAction SilentlyContinue
+            throw "installed-package smoke test failed"
+          }
           Start-Process -FilePath "$inst\unins000.exe" -Wait -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
 
       - name: stage release assets
@@ -160,6 +172,8 @@ jobs:
         run: |
           # Only the release-info.toml asset names are uploaded — staging
           # dirs, extracted portable trees and logs stay out.
+          # Free disk first: staging copies ~10 GB of assets.
+          Remove-Item -Recurse -Force data\tmp\instbuild, data\tmp\pkgbuild, data\tmp\uv-cache, data\tmp\ci-inst -ErrorAction SilentlyContinue
           python scripts\list-release-assets.py dist_pkg --dest dist_release
           Copy-Item install.ps1, install.sh dist_release\
 
@@ -168,6 +182,8 @@ jobs:
         with:
           name: windows
           path: dist_release/
+          # payload is already compressed (zip/7z/exe) — don't re-zip ~10 GB
+          compression-level: 0
           if-no-files-found: error
 
   macos:
@@ -535,5 +551,7 @@ jobs:
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda  # v2.2.1
         with:
           draft: true
+          # manual (workflow_dispatch) runs start from a branch, not a tag
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: artifacts/*
           generate_release_notes: true

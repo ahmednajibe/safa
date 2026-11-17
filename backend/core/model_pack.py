@@ -140,6 +140,18 @@ def model_files(name: str, models_dir: Path) -> list[Path]:
     return _iter_pack_files(base) if base.is_dir() else []
 
 
+def _require_files(name: str, models_dir: Path) -> list[Path]:
+    """``model_files`` that refuses an absent model — an "offline"
+    installer or pack without its models is a broken release. Bundled
+    models (shipped inside a wheel) legitimately have no files."""
+    from backend.core.models_manifest import MODELS
+
+    found = model_files(name, models_dir)
+    if not found and MODELS[name].source != "bundled":
+        raise FileNotFoundError(f"model {name!r} has no files under {models_dir}")
+    return found
+
+
 def stage_pack(out_dir: Path, models_dir: Path, names: list[str]) -> dict:
     """Copy one pack's model files into ``out_dir`` (models/ tree layout)
     — the payload shape offline installers bundle. Returns a summary."""
@@ -149,7 +161,7 @@ def stage_pack(out_dir: Path, models_dir: Path, names: list[str]) -> dict:
     out_dir = Path(out_dir)
     files: list[Path] = []
     for n in names:
-        files += model_files(n, src)
+        files += _require_files(n, src)
     files = sorted(set(files), key=lambda p: p.as_posix())
     for f in files:
         rel = f.relative_to(src)
@@ -172,7 +184,7 @@ def build_pack(
     if names:
         files: list[Path] = []
         for n in names:
-            files += model_files(n, src)
+            files += _require_files(n, src)
     else:
         files = [p for d in src.iterdir() if d.is_dir()
                  for p in _iter_pack_files(d)]
