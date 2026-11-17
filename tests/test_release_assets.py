@@ -184,6 +184,6 @@ def test_publish_drops_oversize_assets_before_sums_and_upload():
     drop = next(i for i, n in enumerate(names) if "2 GiB" in n)
     sums = next(i for i, n in enumerate(names) if "SHA256SUMS" in n)
     rel = next(i for i, s in enumerate(steps)
-               if "action-gh-release" in s.get("uses", ""))
+               if "gh release create" in s.get("run", ""))
     assert drop < sums < rel
     assert "-size +2047M" in steps[drop]["run"]
