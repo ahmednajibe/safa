@@ -285,3 +285,60 @@ def test_bundled_model_with_no_files_is_fine(tmp_path):
     empty = tmp_path / "m"
     empty.mkdir()
     assert model_pack.stage_pack(tmp_path / "s", empty, bundled)["files"] == 0
+
+
+def _hf_cache(models: Path, *, symlink: bool) -> tuple[Path, bytes]:
+    """whisper_small's HF cache: blobs/<sha> + snapshots/<rev>/model.bin
+    (a symlink to the blob, or a plain copy when symlinks are off)."""
+    from backend.core.models_manifest import MODELS
+
+    spec = MODELS["whisper_small"]
+    repo = models / spec.cache_subdir / model_pack._hf_subdir(spec.source)
+    data = b"weights" * 1000
+    blob = repo / "blobs" / "abc123"
+    blob.parent.mkdir(parents=True)
+    blob.write_bytes(data)
+    snap = repo / "snapshots" / "rev1" / "model.bin"
+    snap.parent.mkdir(parents=True)
+    if symlink:
+        os.symlink(blob, snap)
+    else:
+        snap.write_bytes(data)
+    (repo / "refs").mkdir()
+    (repo / "refs" / "main").write_text("rev1")
+    return repo, data
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_hf_blobs_are_not_packed_twice(tmp_path, symlink):
+    # Release run on 16cf73b: GitHub's runner keeps HF weights in blobs/
+    # with symlinked snapshots/ — packing both doubled the extra pack to
+    # 2915 MB, over the 2 GiB asset cap.
+    models = tmp_path / "models dir"
+    try:
+        repo, data = _hf_cache(models, symlink=symlink)
+    except OSError:
+        pytest.skip("no symlink privilege on this machine")
+
+    files = model_pack.model_files("whisper_small", models)
+    rels = {f.relative_to(repo).as_posix() for f in files}
+    assert rels == {"snapshots/rev1/model.bin", "refs/main"}
+
+    out = tmp_path / "p.zip"
+    man = model_pack.build_pack(out, models_dir=models, names=["whisper_small"])
+    assert man["bytes"] == len(data) + len("rev1")
+    with zipfile.ZipFile(out) as z:
+        names = z.namelist()
+        assert not any("/blobs/" in n for n in names)
+        snap = next(n for n in names if n.endswith("snapshots/rev1/model.bin"))
+        assert z.read(snap) == data  # symlink followed: real bytes
+
+    stage = tmp_path / "stage"
+    model_pack.stage_pack(stage, models, ["whisper_small"])
+    staged = next(stage.rglob("model.bin"))
+    assert not staged.is_symlink() and staged.read_bytes() == data
+    assert not any(p.name == "blobs" for p in stage.rglob("*"))
+
+    # whole-tree pack (no names) skips blobs too
+    man_all = model_pack.build_pack(tmp_path / "all.zip", models_dir=models)
+    assert man_all["files"] == 2

@@ -42,11 +42,26 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _is_hf_blob(p: Path) -> bool:
+    """A file under a Hugging Face cache's ``models--*/blobs/``. Where
+    symlinks work (GitHub's Windows runners, Linux, macOS) every
+    ``snapshots/`` file is a symlink to its blob, so packing both stores
+    each weight twice (a 1.5 GB pack became 2.9 GB, over GitHub's 2 GiB
+    asset cap). Snapshots are what loaders read; zip/copy follow the
+    symlink, so the pack holds real files in the no-symlink cache layout
+    huggingface_hub already uses on Windows without symlink rights."""
+    parts = p.parts
+    return any(parts[i] == "blobs" and parts[i - 1].startswith("models--")
+               for i in range(1, len(parts) - 1))
+
+
 def _iter_pack_files(models_dir: Path) -> list[Path]:
-    """Every regular file under ``models_dir``, posix-rel, sorted."""
+    """Every regular file under ``models_dir``, posix-rel, sorted —
+    minus HF blob copies (see ``_is_hf_blob``)."""
     out = []
     for p in models_dir.rglob("*"):
-        if p.is_file() and not p.name.endswith(_PART_SUFFIX):
+        if (p.is_file() and not p.name.endswith(_PART_SUFFIX)
+                and not _is_hf_blob(p.relative_to(models_dir.parent))):
             out.append(p)
     return sorted(out, key=lambda p: p.as_posix())
 
