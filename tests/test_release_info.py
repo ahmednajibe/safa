@@ -58,8 +58,12 @@ def test_model_packs_reference_real_models():
         assert keys, f"pack {pack} is empty"
         for k in keys:
             assert k in MODELS, f"pack {pack} references unknown model {k}"
-    assert set(ri.MODEL_PACKS) == {"core", "all"}
-    assert set(ri.MODEL_PACKS["core"]) <= set(ri.MODEL_PACKS["all"])
+    assert set(ri.MODEL_PACKS) == {"core", "extra"}
+    core, extra = set(ri.MODEL_PACKS["core"]), set(ri.MODEL_PACKS["extra"])
+    assert not core & extra, "packs must not overlap"
+    # core + extra = every model that has files to pack
+    packable = {k for k, v in MODELS.items() if v.source != "bundled"}
+    assert core | extra == packable
 
 
 def test_guids_are_fixed_and_distinct():

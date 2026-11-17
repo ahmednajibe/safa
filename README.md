@@ -411,11 +411,14 @@ docker run --rm --gpus all -p 127.0.0.1:8790:8790 -v safa-data:/data safa:cuda
 <!-- method:models-import -->
 
 For machines with no internet: download
-`Safa-models-core-<ver>.zip` (~600 MB) or `Safa-models-all-<ver>.zip`
-(~2.3 GB) elsewhere, then inside the app folder:
+`Safa-models-core-<ver>.zip` (under 1 GB: denoise, separation, fast
+subtitles) and, for everything, also `Safa-models-extra-<ver>.zip`
+(~1.5 GB: accurate subtitles, second separation model) elsewhere, then
+inside the app folder import each one:
 
 ```
 python -m backend.launcher models import Safa-models-core-<ver>.zip
+python -m backend.launcher models import Safa-models-extra-<ver>.zip
 ```
 
 Checksums are verified and partial imports resume safely.

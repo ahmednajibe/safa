@@ -33,7 +33,7 @@ ASSET_FILES = [
     "Safa-0.1.0-win-x64-cpu-portable.zip",
     "Safa-0.1.0-source.zip",
     "Safa-models-core-0.1.0.zip",
-    "Safa-models-all-0.1.0.zip",
+    "Safa-models-extra-0.1.0.zip",
     "slicecount.txt",
     "gpu-portable/Safa-0.1.0-win-x64-gpu-portable.7z.001",
     "gpu-portable/Safa-0.1.0-win-x64-gpu-portable.7z.002",

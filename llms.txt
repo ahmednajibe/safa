@@ -36,7 +36,7 @@ troubleshooting):
 - [Docker](README.md#docker): CPU and CUDA images — always publish
   `127.0.0.1:8790:8790`, volume `/data`.
 - [Offline model packs](README.md#offline-model-packs):
-  `Safa-models-core-*.zip` / `Safa-models-all-*.zip` imported via
+  `Safa-models-core-*.zip` + `Safa-models-extra-*.zip` imported via
   `python -m backend.launcher models import`.
 
 The same lists in Arabic: [التثبيت — ويندوز](README.ar.md),

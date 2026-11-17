@@ -398,12 +398,14 @@ docker run --rm --gpus all -p 127.0.0.1:8790:8790 -v safa-data:/data safa:cuda
 ### حزم النماذج دون اتصال
 <!-- method:models-import -->
 
-لأجهزة بلا إنترنت: نزّل `Safa-models-core-<ver>.zip` (~600 ميغا) أو
-`Safa-models-all-<ver>.zip` (~2.3 غيغا) من مكان آخر ثم داخل مجلد
-التطبيق:
+لأجهزة بلا إنترنت: نزّل `Safa-models-core-<ver>.zip` (أقل من 1 غيغا: إزالة
+الضوضاء وفصل الصوت والترجمة السريعة)، ولكل الميزات نزّل أيضًا
+`Safa-models-extra-<ver>.zip` (~1.5 غيغا: الترجمة الدقيقة ونموذج الفصل
+الثاني) من مكان آخر، ثم داخل مجلد التطبيق استورد كل حزمة:
 
 ```
 python -m backend.launcher models import Safa-models-core-<ver>.zip
+python -m backend.launcher models import Safa-models-extra-<ver>.zip
 ```
 
 البصمات تُتحقق والاستيراد الجزئي يستكمل بأمان.
