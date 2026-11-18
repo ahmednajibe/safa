@@ -505,6 +505,49 @@ def test_manager_manifests_reference_assets():
     aur = (ROOT / "packaging/aur/PKGBUILD").read_text(encoding="utf-8")
     assert "linux-x64-cpu.tar.gz" in aur
 
+
+def test_manager_manifests_have_real_version_and_hashes():
+    """README's ``scoop install …/safa.json`` / ``brew install
+    …/safa.rb`` / winget + AUR fetch the COMMITTED manifests — they must
+    carry pyproject's version and real 64-hex sums, not ``0.1.0`` +
+    ``<sha256-…>`` placeholders (scripts/bump_manifests.py fills them)."""
+    import tomllib
+
+    ver = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))[
+        "project"]["version"]
+    files = [
+        ROOT / "packaging/winget/Safa.Safa.yaml",
+        ROOT / "packaging/winget/Safa.Safa.installer.yaml",
+        ROOT / "packaging/winget/Safa.Safa.locale.en-US.yaml",
+        ROOT / "packaging/winget/Safa.Safa.locale.ar-SA.yaml",
+        ROOT / "packaging/scoop/safa.json",
+        ROOT / "packaging/homebrew/safa.rb",
+        ROOT / "packaging/aur/PKGBUILD",
+    ]
+    for p in files:
+        assert "<sha256" not in p.read_text(encoding="utf-8"), p.name
+
+    for p in files[:4]:
+        text = p.read_text(encoding="utf-8")
+        assert f'PackageVersion: "{ver}"' in text, p.name
+    inst = files[1].read_text(encoding="utf-8")
+    assert re.search(r'^\s*InstallerSha256: "[0-9A-F]{64}"', inst, re.M)
+    assert re.search(r'^ReleaseDate: "\d{4}-\d{2}-\d{2}"', inst, re.M)
+
+    scoop = json.loads(files[4].read_text(encoding="utf-8"))
+    assert scoop["version"] == ver
+    assert re.fullmatch(r"[0-9a-f]{64}",
+                        scoop["architecture"]["64bit"]["hash"])
+
+    rb = files[5].read_text(encoding="utf-8")
+    assert f"v{ver}/" in rb and f"Safa-{ver}-" in rb
+    assert re.search(r'^\s*sha256 "[0-9a-f]{64}"', rb, re.M)
+
+    pkg = files[6].read_text(encoding="utf-8")
+    assert f"pkgver={ver}" in pkg
+    assert re.search(r"^sha256sums=\('[0-9a-f]{64}'\)", pkg, re.M)
+
+
 @pytest.mark.skipif(PS is None, reason="powershell not on PATH")
 def test_install_ps1_failure_under_iex_keeps_session_alive(tmp_path):
     """`irm … | iex` has no script file: a failure must throw, never

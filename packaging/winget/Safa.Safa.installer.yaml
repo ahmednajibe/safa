@@ -1,8 +1,8 @@
 # winget installer manifest — wraps the ONLINE Inno installer only.
-# Replace <sha256-online> at release time (release-info.toml
-# is the canonical asset-name source).
+# InstallerUrl/InstallerSha256/ReleaseDate are filled by
+# scripts/bump_manifests.py --sums SHA256SUMS.txt after a release is published.
 PackageIdentifier: Safa.Safa
-PackageVersion: "0.1.0"
+PackageVersion: "0.1.1"
 InstallerType: inno
 Scope: user
 InstallModes:
@@ -13,10 +13,10 @@ InstallerSwitches:
   SilentWithProgress: /SILENT /NORESTART /CURRENTUSER
   InstallLocation: /DIR="<INSTALLDIR>"
 UpgradeBehavior: install
-ReleaseDate: "2026-01-01"
+ReleaseDate: "2026-11-18"
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/ahmednajibe/safa/releases/download/v0.1.0/Safa-0.1.0-win-x64-setup.exe
-    InstallerSha256: "<sha256-online>"
+    InstallerUrl: https://github.com/ahmednajibe/safa/releases/download/v0.1.1/Safa-0.1.1-win-x64-setup.exe
+    InstallerSha256: "6E407D7060E72B005F854F76C5D35855D6A210468B408D75CD24C43735423B29"
 ManifestType: installer
 ManifestVersion: 1.6.0
