@@ -474,9 +474,9 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     # flatpak-builder needs flatpak + xvfb-run: they live in this image
-    # (runtime matches the manifest's org.freedesktop 24.08).
+    # (runtime matches the manifest's org.freedesktop 26.08).
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
       options: --privileged
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0

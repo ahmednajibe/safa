@@ -18,6 +18,7 @@ PLIST = (MACOS / "Info.plist").read_text("utf-8")
 LAUNCHER = (MACOS / "Safa").read_text("utf-8")
 MANIFEST = (FLATPAK / "org.safa.Safa.yaml").read_text("utf-8")
 RUN = (FLATPAK / "safa-run.sh").read_text("utf-8")
+REL = (ROOT / ".github" / "workflows" / "release.yml").read_text("utf-8")
 
 
 def _sh(script: Path, *args: str) -> subprocess.CompletedProcess:
@@ -124,6 +125,22 @@ def test_flatpak_reverse_dns_explained():
                          if l.lstrip().startswith("#"))
     assert "reverse-dns" in comments.lower()
     assert "org.safa" in comments
+
+
+def test_flatpak_runtime_matches_ci_image():
+    # the release.yml flatpak job runs inside a freedesktop-XX.YY
+    # container — it must track the manifest's runtime-version, and the
+    # runtime must not be EOL (24.08 died mid-release, v0.1.1).
+    import re
+    ver = re.search(r"^runtime-version:\s*'([0-9]+\.[0-9]+)'",
+                    MANIFEST, re.M)
+    tag = re.search(r"flatpak-github-actions:freedesktop-([0-9]+\.[0-9]+)",
+                    REL)
+    assert ver, "runtime-version missing from the flatpak manifest"
+    assert tag, "freedesktop image tag missing from the flatpak job"
+    assert ver.group(1) == tag.group(1)
+    assert int(ver.group(1).split(".")[0]) >= 25, \
+        "org.freedesktop runtime is end-of-life"
 
 
 def test_all_posix_scripts_lf():
