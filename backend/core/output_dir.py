@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
 from pathlib import Path
 
@@ -20,12 +21,18 @@ from backend.core.paths import ROOT
 from backend.media.storage import free_space_bytes
 
 PICKER_TIMEOUT_S = 120
+# Save As: people browse/rename longer than they pick a folder; the dialog
+# is killed (= cancelled) after this.
+SAVE_AS_TIMEOUT_S = 600
 
-# askdirectory in a throwaway interpreter: DPI-aware *before* Tk() (Windows 11
-# scaling), withdrawn root so only the dialog shows, topmost so it can't hide
-# behind the browser. The chosen path goes to stdout; empty means cancelled.
-_PICKER_SCRIPT = """\
+# Native dialogs run in a throwaway interpreter: DPI-aware *before* Tk()
+# (Windows 11 scaling), withdrawn root so only the dialog shows, topmost +
+# lift/focus so it can't hide behind the browser. The chosen path goes to
+# stdout as UTF-8 (the parent decodes UTF-8 — without this an Arabic folder
+# name was mangled through the ANSI code page); empty means cancelled.
+_DIALOG_PRELUDE = """\
 import sys
+sys.stdout.reconfigure(encoding="utf-8")
 try:
     import ctypes
     ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
@@ -37,14 +44,42 @@ root = tk.Tk()
 root.withdraw()
 try:
     root.wm_attributes("-topmost", 1)
+    root.lift()
+    root.focus_force()
 except tk.TclError:
     pass
+"""
+
+_PICKER_SCRIPT = _DIALOG_PRELUDE + """\
 try:
     _path = filedialog.askdirectory(parent=root)
 finally:
     root.destroy()
 sys.stdout.write(_path or "")
 """
+
+# v0.1.1 server-side "Save as…": the browser's File System Access picker was
+# cancelled by Chrome itself after the user pressed Save (AbortError, no
+# file), so the server — which runs on the user's own PC — shows the native
+# Save As window and copies the file. argv: <initial name> <.ext>.
+_SAVE_AS_SCRIPT = _DIALOG_PRELUDE + """\
+_name, _ext = sys.argv[1], sys.argv[2]
+_types = [(_ext.lstrip(".").upper() + " file", "*" + _ext)] if _ext else []
+try:
+    _path = filedialog.asksaveasfilename(
+        parent=root,
+        initialfile=_name,
+        defaultextension=_ext,
+        filetypes=_types + [("All files", "*.*")],
+        confirmoverwrite=True,
+    )
+finally:
+    root.destroy()
+sys.stdout.write(_path or "")
+"""
+
+# One native dialog at a time across the whole app (folder picker + Save as).
+PICK_LOCK = threading.Lock()
 
 
 class OutputDirInvalid(Exception):
@@ -55,7 +90,11 @@ class PickerUnavailable(Exception):
     """The dialog process can't run on this machine → 503 picker_unavailable."""
 
 
-def validate_output_dir(raw: str, project_root: Path | None = None) -> Path:
+def validate_output_dir(
+    raw: str,
+    project_root: Path | None = None,
+    allow_drive_root: bool = False,
+) -> Path:
     """Resolve + vet an output folder (SPEC §12).
 
     Rejects: empty/missing paths, non-directories, drive roots, anything
@@ -73,9 +112,12 @@ def validate_output_dir(raw: str, project_root: Path | None = None) -> Path:
         p = Path.cwd() / p
     lexical = Path(os.path.normpath(str(p)))
     resolved = lexical.resolve()
-    if resolved != lexical:
+    # normcase: on Windows resolve() returns the on-disk letter case, so a
+    # dialog/typed path differing only in case (c:/users/... vs C:/Users/...)
+    # must not count as a link escape
+    if os.path.normcase(str(resolved)) != os.path.normcase(str(lexical)):
         raise OutputDirInvalid(f"link escape: {raw!r}")
-    if resolved.parent == resolved:
+    if resolved.parent == resolved and not allow_drive_root:
         raise OutputDirInvalid(f"drive root: {raw!r}")
     root_r = root.resolve()
     if resolved == root_r or root_r in resolved.parents:
@@ -109,16 +151,21 @@ def build_picker_command() -> list[str]:
     return [sys.executable, "-c", _PICKER_SCRIPT]
 
 
-def run_picker(timeout_s: float | None = None) -> str | None:
-    """Open the folder dialog; returns the picked path, ``None`` on cancel
-    (including the 120 s timeout — nothing was chosen). Raises
-    :class:`PickerUnavailable` when the dialog can't run at all."""
+def build_save_as_command(initial_name: str) -> list[str]:
+    """Argv for the Save As subprocess (injected in tests)."""
+    ext = Path(initial_name).suffix
+    return [sys.executable, "-c", _SAVE_AS_SCRIPT, initial_name, ext]
+
+
+def _run_dialog(cmd: list[str], timeout_s: float | None) -> str | None:
     timeout = PICKER_TIMEOUT_S if timeout_s is None else timeout_s
     try:
         cp = subprocess.run(
-            build_picker_command(),
+            cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
@@ -130,6 +177,58 @@ def run_picker(timeout_s: float | None = None) -> str | None:
             (cp.stderr or f"exit {cp.returncode}")[:300]
         )
     return cp.stdout.strip() or None
+
+
+def run_picker(timeout_s: float | None = None) -> str | None:
+    """Open the folder dialog; returns the picked path, ``None`` on cancel
+    (including the 120 s timeout — nothing was chosen). Raises
+    :class:`PickerUnavailable` when the dialog can't run at all."""
+    return _run_dialog(build_picker_command(), timeout_s)
+
+
+def run_save_as(initial_name: str, timeout_s: float | None = None) -> str | None:
+    """Open the native Save As dialog; returns the chosen file path or
+    ``None`` on cancel/timeout. Raises :class:`PickerUnavailable` when no
+    GUI is available (Docker/headless) — callers fall back to a download."""
+    return _run_dialog(
+        build_save_as_command(initial_name),
+        SAVE_AS_TIMEOUT_S if timeout_s is None else timeout_s,
+    )
+
+
+def validate_save_target(raw: str, ext: str) -> Path:
+    """Vet a Save As target: its folder passes :func:`validate_output_dir`
+    (drive roots allowed — the user explicitly chose the spot), the name
+    keeps the output's real extension (Save As never converts), and an
+    existing link/directory at the target is refused."""
+    p = Path(str(raw).strip().strip('"'))
+    if not p.is_absolute() or not p.name:
+        raise OutputDirInvalid(f"not an absolute file path: {raw!r}")
+    if ext and p.suffix.lower() != ext.lower():
+        p = p.with_name(p.name + ext)
+    folder = validate_output_dir(str(p.parent), allow_drive_root=True)
+    target = folder / p.name
+    if target.is_symlink() or target.is_dir():
+        raise OutputDirInvalid(f"not a regular file target: {raw!r}")
+    return target
+
+
+def copy_to(src: Path, target: Path) -> Path:
+    """Copy ``src`` to exactly ``target`` (the user confirmed any overwrite
+    in the dialog): ``.<name>.<uuid>.tmp`` beside it, then ``os.replace`` —
+    never a half-written file at ``target``."""
+    size = Path(src).stat().st_size
+    if free_space_bytes(target.parent) < size:
+        raise OSError("not enough free space")
+    tmp = target.parent / f".{target.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        with Path(src).open("rb") as r, tmp.open("wb") as w:
+            shutil.copyfileobj(r, w, 1024 * 1024)
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return target
 
 
 def reveal_in_explorer(path: Path, sys_platform: str | None = None) -> None:

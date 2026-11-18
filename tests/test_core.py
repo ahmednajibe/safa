@@ -68,3 +68,48 @@ def test_configure_model_env_overrides_existing(monkeypatch):
     assert Path(os.environ["HF_HUB_CACHE"]).is_relative_to(MODELS_DIR)
     assert Path(os.environ["TORCH_HOME"]).is_relative_to(MODELS_DIR)
     assert Path(os.environ["XDG_CACHE_HOME"]).is_relative_to(MODELS_DIR)
+
+
+# ---- v0.1.1: Windows CUDA DLLs come from torch/lib ------------------------------
+
+
+def _fake_torch_lib(sp: Path, *, cuda: bool) -> Path:
+    tl = sp / "torch" / "lib"
+    tl.mkdir(parents=True)
+    (tl / "torch_cpu.dll").write_bytes(b"x")
+    if cuda:
+        for n in ("torch_cuda.dll", "cudnn64_9.dll", "cublas64_12.dll"):
+            (tl / n).write_bytes(b"x")
+    return tl
+
+
+def test_cuda_dll_dirs_includes_cuda_torch_lib_on_windows(tmp_path, monkeypatch):
+    from backend.core import gpu
+
+    sp = tmp_path / "site-packages"
+    tl = _fake_torch_lib(sp, cuda=True)
+    monkeypatch.setattr(gpu, "_site_packages_dirs", lambda: [sp])
+    assert gpu.cuda_dll_dirs(is_nt=True) == [tl]
+    # POSIX resolves .so's from nvidia/*/lib wheels, never torch/lib
+    assert gpu.cuda_dll_dirs(is_nt=False) == []
+
+
+def test_cpu_torch_lib_does_not_count_as_cuda(tmp_path, monkeypatch):
+    """CPU torch has torch/lib too — counting it would claim a usable GPU."""
+    from backend.core import gpu
+
+    sp = tmp_path / "site-packages"
+    _fake_torch_lib(sp, cuda=False)
+    monkeypatch.setattr(gpu, "_site_packages_dirs", lambda: [sp])
+    assert gpu.cuda_dll_dirs(is_nt=True) == []
+
+
+def test_nvidia_wheels_and_torch_lib_both_listed(tmp_path, monkeypatch):
+    """Pre-0.1.1 Windows installs still have nvidia/*/bin: keep them first."""
+    from backend.core import gpu
+
+    sp = tmp_path / "site-packages"
+    (sp / "nvidia" / "cudnn" / "bin").mkdir(parents=True)
+    tl = _fake_torch_lib(sp, cuda=True)
+    monkeypatch.setattr(gpu, "_site_packages_dirs", lambda: [sp])
+    assert gpu.cuda_dll_dirs(is_nt=True) == [sp / "nvidia" / "cudnn" / "bin", tl]

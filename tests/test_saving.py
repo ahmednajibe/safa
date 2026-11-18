@@ -17,7 +17,6 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
-import backend.api.settings as settings_api
 from backend.core import output_dir
 from backend.core.output_dir import (
     OutputDirInvalid,
@@ -314,13 +313,13 @@ def test_pick_single_flight_409(tmp_path):
     """While one folder dialog is open (lock held) a second POST must get
     409 — never a second dialog process."""
     c = _client(tmp_path)
-    assert settings_api._PICK_LOCK.acquire(blocking=False)
+    assert output_dir.PICK_LOCK.acquire(blocking=False)
     try:
         r = c.post("/api/settings/output-dir/pick", headers=GOOD_ORIGIN)
         assert r.status_code == 409
         assert r.json()["code"] == "picker_busy"
     finally:
-        settings_api._PICK_LOCK.release()
+        output_dir.PICK_LOCK.release()
     # and it works again once the dialog is done
     r = c.post("/api/settings/output-dir/pick", headers=GOOD_ORIGIN)
     assert r.status_code != 409

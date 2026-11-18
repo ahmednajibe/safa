@@ -194,6 +194,7 @@ export const ar: Dict = {
     copy: "حفظ نسخة…",
     all: "حفظ الكل في مجلد…",
     saving: "جارٍ الحفظ {pct}%…",
+    choosing: "اختر مكان الحفظ…",
     savingAll: "جارٍ الحفظ {n} من {total}: {name}…",
     saved: "تم الحفظ",
     savedTo: "تم الحفظ في {folder}",

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "safa-audio"
 # version is rewritten from the ROOT pyproject by scripts/build-wheel.py;
 # tests/test_pypi_wheel.py asserts they stay in sync.
-version = "0.1.0"
+version = "0.1.1"
 description = "Safa (صفا) — clean audio and video on your own computer (bootstrap installer)"
 readme = "README.md"
 license = { text = "MIT" }

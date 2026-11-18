@@ -4,6 +4,7 @@ import { deleteJob, setJobKeep } from "../api/client";
 import type { Job } from "../api/types";
 import { useT } from "../i18n";
 import { fmtBytes, fmtDate } from "../lib/format";
+import { saveKey } from "../state/reducers";
 import { useStore } from "../state/store";
 
 const TERMINAL_RE = /completed|failed|cancelled|interrupted/;
@@ -28,7 +29,6 @@ export function HistoryDrawer({
   const store = useStore();
   const { job } = store;
   const [confirmId, setConfirmId] = useState<string | null>(null);
-
   /** Auto-delete date for a terminal job: finished_at + retention days. */
   const expiry = (j: Job): string | null => {
     const d = store.settings.retentionDays;
@@ -96,17 +96,46 @@ export function HistoryDrawer({
             </button>
             <div className="drawer-actions">
               {j.state === "completed" &&
-                j.files?.map((f) => (
-                  <button
-                    key={f.name}
-                    type="button"
-                    className="link-btn"
-                    onClick={() => void saveOne(store, j.id, f)}
-                  >
-                    {t.d.history.saveAgain} <bdi>{f.name}</bdi>{" "}
-                    {fmtBytes(f.size_bytes)}
-                  </button>
-                ))}
+                j.files?.map((f) => {
+                  // job-keyed store state: the same save shows here and in
+                  // the dock, and survives closing/reopening the drawer
+                  const savingThis =
+                    job.saving?.jobId === j.id && job.saving.name === f.name;
+                  const savedThis = !!job.saved[saveKey(j.id, f.name)];
+                  const errThis =
+                    job.saveError?.jobId === j.id ? job.saveError : null;
+                  return (
+                    <span key={f.name} className="drawer-save">
+                      {savingThis ? (
+                        <span className="save-note" role="status">
+                          {(job.saving?.pct ?? 0) < 0
+                            ? t.d.save.choosing
+                            : t.t(t.d.save.saving, {
+                                pct: t.num(Math.round((job.saving?.pct ?? 0) * 100)),
+                              })}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="link-btn"
+                          disabled={!!job.saving || !!job.savingAll}
+                          onClick={() => void saveOne(store, j.id, f)}
+                        >
+                          {t.d.history.saveAgain} <bdi>{f.name}</bdi>{" "}
+                          {fmtBytes(f.size_bytes)}
+                        </button>
+                      )}
+                      {savedThis && !savingThis && (
+                        <span className="pill">{t.d.save.saved}</span>
+                      )}
+                      {errThis && (
+                        <span className="save-note neg" role="alert">
+                          {t.msg(errThis.code, errThis.params, t.d.save.error)}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
               {TERMINAL_RE.test(j.state) && (
                 <label className="keep-row">
                   <input
@@ -163,13 +192,6 @@ export function HistoryDrawer({
           </li>
         ))}
       </ul>
-      {job.saving && (
-        <div className="drawer-foot" role="status">
-          {t.t(t.d.save.saving, {
-            pct: t.num(Math.round(job.saving.pct * 100)),
-          })}
-        </div>
-      )}
     </aside>
   );
 }

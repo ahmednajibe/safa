@@ -113,12 +113,55 @@ internal static class SafaLauncher
 
     // ---- helpers -----------------------------------------------------------
 
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetStdHandle(int nStdHandle);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetFileType(IntPtr hFile);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBoxW(
+        IntPtr hWnd, string text, string caption, uint type);
+
+    private const uint MB_ICONWARNING = 0x30;
+    private const int STD_OUTPUT_HANDLE = -11;
+    private const uint FILE_TYPE_DISK = 1;
+    private const uint FILE_TYPE_PIPE = 3;
+    private static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
+
+    // Built /target:winexe: started from a shortcut there is NO console —
+    // Console.OutputEncoding throws IOException and Console.WriteLine goes
+    // nowhere (v0.1.0 died on that first line, so the app never opened).
+    private static bool HasConsole() { return GetConsoleWindow() != IntPtr.Zero; }
+
+    private static bool StdoutRedirected()
+    {
+        IntPtr h = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (h == IntPtr.Zero || h == INVALID_HANDLE_VALUE) return false;
+        uint t = GetFileType(h);
+        return t == FILE_TYPE_DISK || t == FILE_TYPE_PIPE;
+    }
+
+    private static bool CanPrint() { return HasConsole() || StdoutRedirected(); }
+
     private static void Bilingual(string en, string ar)
     {
         bool arabic = System.Globalization.CultureInfo
             .CurrentUICulture.Name.StartsWith("ar");
-        Console.WriteLine(arabic ? ar : en);
-        Console.WriteLine(arabic ? en : ar);
+        string first = arabic ? ar : en, second = arabic ? en : ar;
+        if (CanPrint())
+        {
+            Console.WriteLine(first);
+            Console.WriteLine(second);
+        }
+        else
+        {
+            MessageBoxW(IntPtr.Zero, first + "\r\n\r\n" + second,
+                "Safa (صفا)", MB_ICONWARNING);
+        }
     }
 
     private static string Quote(string s) { return "\"" + s + "\""; }
@@ -147,7 +190,17 @@ internal static class SafaLauncher
 
     private static int Run(string[] args)
     {
-        Console.OutputEncoding = Encoding.UTF8;
+        if (HasConsole())
+        {
+            try { Console.OutputEncoding = Encoding.UTF8; }
+            catch (IOException) { }  // redirected/odd console: keep default
+        }
+        else if (StdoutRedirected())
+        {
+            Console.SetOut(new StreamWriter(
+                Console.OpenStandardOutput(), new UTF8Encoding(false))
+            { AutoFlush = true });
+        }
         var root = Path.GetDirectoryName(
             System.Reflection.Assembly.GetExecutingAssembly().Location)
             .TrimEnd('\\');
@@ -163,9 +216,12 @@ internal static class SafaLauncher
                 broken
                     ? "هذه الحزمة غير مكتملة (ملف بايثون مفقود). فكّ الضغط مرة أخرى في مجلد جديد."
                     : "لم يُعثر على بايثون — ثبّت من المصدر أو استخدم المثبّت (راجع README.md).");
-            Console.WriteLine();
-            Console.WriteLine("Press Enter to exit — اضغط Enter للخروج");
-            Console.ReadLine();
+            if (HasConsole())
+            {
+                Console.WriteLine();
+                Console.WriteLine("Press Enter to exit — اضغط Enter للخروج");
+                Console.ReadLine();
+            }
             return 4;
         }
 

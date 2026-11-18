@@ -72,15 +72,11 @@ def stage_payload(app: Path = APP) -> Path:
 def export_requirements(app: Path = APP) -> list[Path]:
     """Frozen + hashed locks for both variants — the same exports the
     Inno installer provisions from (uv export keeps --hash lines)."""
-    out = []
-    for extra in ("cpu", "cu124"):
-        req = app / f"requirements-{extra}.txt"
-        subprocess.run(
-            ["uv", "export", "--frozen", "--no-dev", "--extra", extra,
-             "-o", str(req)],
-            cwd=ROOT, check=True)
-        out.append(req)
-    return out
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from export_requirements import export  # uv export + cpu ORT swap
+
+    return [export(extra, app / f"requirements-{extra}.txt")
+            for extra in ("cpu", "cu124")]
 
 
 def main(argv: list[str] | None = None) -> int:

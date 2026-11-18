@@ -101,6 +101,7 @@ MESSAGES: dict[str, str] = {
         "The folder window couldn't open on this computer."
     ),
     "picker_busy": "A folder window is already open.",
+    "save_failed": "Couldn't save the file. Try again.",
     "auto_save_failed": "Couldn't save to {path}. Save it manually.",
     "no_saved_path": "This file wasn't saved to a folder.",
     "in_use": "A running job is using this file.",

@@ -79,16 +79,24 @@ Name: "{autodesktop}\Safa"; Filename: "{app}\Safa.exe"; IconFilename: "{app}\Saf
 Filename: "{app}\Safa.exe"; Description: "{cm:LaunchProgram,Safa}"; Flags: nowait postinstall skipifsilent unchecked
 
 [CustomMessages]
-en.MissingSlices=Setup is incomplete - these disk slices are missing. Download every file and run setup again:
-ar.MissingSlices=التثبيت غير مكتمل - أجزاء القرص هذه مفقودة. نزّل كل الملفات وأعد تشغيل المثبّت:
+en.MissingSlices=Setup is incomplete. Download these files into the SAME folder as this setup, then run it again:
+ar.MissingSlices=التثبيت غير مكتمل. نزّل هذه الملفات في نفس مجلد هذا المثبّت، ثم شغّله مرة أخرى:
 
 #include "common.iss"
 
 [Code]
-{ If a slicecount.txt companion sits next to the exe (release packaging
-  writes it), verify every expected -N.bin slice is present BEFORE the
-  wizard starts — Inno's native "insert disk" prompt cannot abort a
-  silent install, so this check is what makes refusal deterministic. }
+{ Verify the -N.bin slices are present BEFORE the wizard starts — Inno's
+  native "insert disk" prompt cannot abort a silent install and confuses
+  people who downloaded only the exe. With a slicecount.txt companion
+  (release packaging writes it) every expected slice is checked. Without
+  it (the usual browser download: just the exe) slice 1 — which always
+  exists when DiskSpanning splits anything — must still be there; a
+  missing later slice then falls back to Inno's own disk prompt. }
+function SliceName(I: Integer): string;
+begin
+  Result := Format('Safa-{#AppVer}-win-x64-gpu-offline-setup-%d.bin', [I]);
+end;
+
 function InitializeSetup(): Boolean;
 var
   CntFile: string;
@@ -98,16 +106,15 @@ var
 begin
   Result := True;
   CntFile := ExpandConstant('{src}\slicecount.txt');
-  if not LoadStringFromFile(CntFile, S) then
-    exit;  // no companion file -> rely on Inno's native disk prompting
-  N := StrToIntDef(Trim(string(S)), 0);
+  N := 1;  // no companion file -> at least slice 1
+  if LoadStringFromFile(CntFile, S) then
+    N := StrToIntDef(Trim(string(S)), 1);
   if N <= 0 then
-    exit;
+    N := 1;
   Missing := '';
   for I := 1 to N do
-    if not FileExists(ExpandConstant(
-        Format('{src}\Safa-{#AppVer}-win-x64-gpu-offline-setup-%d.bin', [I]))) then
-      Missing := Missing + #13#10 + '  setup-' + IntToStr(I) + '.bin';
+    if not FileExists(ExpandConstant('{src}\') + SliceName(I)) then
+      Missing := Missing + #13#10 + '  ' + SliceName(I);
   if Missing <> '' then
   begin
     SuppressibleMsgBox(

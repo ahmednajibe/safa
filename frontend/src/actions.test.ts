@@ -1,9 +1,24 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Job, MediaInfo } from "./api/types";
 import { ApiError } from "./api/types";
-import { adoptJob } from "./actions";
+import { adoptJob, saveAll } from "./actions";
 import { emptyMedia, emptyJob, type MediaState } from "./state/reducers";
 import type { Store } from "./state/store";
+
+// saveAll's no-GUI fallback; a void function — mocking it is safe (unlike
+// a rejected promise, nothing crosses a mocked-module boundary).
+vi.mock("./lib/save", () => ({ downloadJobFile: vi.fn() }));
+import { downloadJobFile } from "./lib/save";
+
+const downloadMock = vi.mocked(downloadJobFile);
+const fetchMock = vi.fn();
+
+function jsonResp(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 const READY: MediaInfo = {
   media_id: "b".repeat(32),
@@ -143,5 +158,109 @@ describe("adoptJob (R2 #13c)", () => {
       type: "set-active",
       job: j,
     });
+  });
+});
+
+describe("saveAll (server-side folder pick)", () => {
+  const JID = "d".repeat(32);
+  const FILES = [
+    { name: "a.wav", size_bytes: 10 },
+    { name: "b.srt", size_bytes: 5 },
+  ];
+
+  // fetch is stubbed (not a module mock): the ApiError is thrown by the
+  // real sendJson/readError, so no rejection crosses a mocked-module
+  // boundary — vitest 4 would report that as a phantom test error.
+  vi.stubGlobal("fetch", fetchMock);
+
+  function jobStore() {
+    return {
+      media: loaded,
+      job: { ...emptyJob }, // jobId isn't active → refreshSavedFiles no-ops
+      dispatchMedia: vi.fn(),
+      dispatchJob: vi.fn(),
+    } as unknown as Store & {
+      dispatchJob: ReturnType<typeof vi.fn>;
+    };
+  }
+
+  afterEach(() => {
+    fetchMock.mockReset();
+    downloadMock.mockReset();
+  });
+
+  it("marks every file saved after the server copies them", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResp(200, { status: "saved", folder: "D:\\picked" }),
+    );
+    const store = jobStore();
+    await saveAll(store, JID, FILES);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/jobs/${JID}/save-all`,
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(store.dispatchJob).toHaveBeenCalledWith({ type: "saved-all" });
+    for (const f of FILES) {
+      expect(store.dispatchJob).toHaveBeenCalledWith({
+        type: "saved",
+        jobId: JID,
+        name: f.name,
+      });
+    }
+    expect(downloadMock).not.toHaveBeenCalled();
+  });
+
+  it("clears the busy state when the folder dialog is cancelled", async () => {
+    fetchMock.mockResolvedValue(jsonResp(200, { status: "cancelled" }));
+    const store = jobStore();
+    await saveAll(store, JID, FILES);
+    expect(store.dispatchJob).toHaveBeenCalledWith({
+      type: "save-error",
+      jobId: JID,
+      error: null,
+    });
+    expect(store.dispatchJob).not.toHaveBeenCalledWith({ type: "saved-all" });
+    expect(downloadMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to browser downloads on picker_unavailable", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResp(503, {
+        code: "picker_unavailable",
+        message: "The folder window couldn't open on this computer.",
+        params: {},
+      }),
+    );
+    const store = jobStore();
+    await saveAll(store, JID, FILES);
+    expect(downloadMock).toHaveBeenCalledTimes(2);
+    expect(downloadMock).toHaveBeenCalledWith(JID, "a.wav");
+    expect(downloadMock).toHaveBeenCalledWith(JID, "b.srt");
+    expect(store.dispatchJob).toHaveBeenCalledWith({ type: "saved-all" });
+    for (const f of FILES) {
+      expect(store.dispatchJob).toHaveBeenCalledWith({
+        type: "saved",
+        jobId: JID,
+        name: f.name,
+      });
+    }
+  });
+
+  it("shows a save-error on other server failures", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResp(500, {
+        code: "save_failed",
+        message: "Couldn't save the file. Try again.",
+        params: {},
+      }),
+    );
+    const store = jobStore();
+    await saveAll(store, JID, FILES);
+    expect(store.dispatchJob).toHaveBeenCalledWith({
+      type: "save-error",
+      jobId: JID,
+      error: { code: "save_failed", params: {} },
+    });
+    expect(downloadMock).not.toHaveBeenCalled();
   });
 });

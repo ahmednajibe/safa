@@ -130,12 +130,13 @@ if ($Kind -eq "online") {
         if (Test-Path $src) { Copy-Item $src (Join-Path $Payload $f) }
     }
 
-    Write-Host "== uv export requirements (frozen, hashed) =="
+    Write-Host "== export requirements (frozen, hashed) =="
     foreach ($extra in @("cpu", "cu124")) {
+        # scripts/export_requirements.py: uv export + the cpu ORT swap
         Invoke-Native {
-            uv export --frozen --no-dev --extra $extra `
-                -o (Join-Path $Payload "requirements-$extra.txt")
-        } "uv export --extra $extra"
+            uv run --no-project python (Join-Path $Root "scripts\export_requirements.py") `
+                --extra $extra -o (Join-Path $Payload "requirements-$extra.txt")
+        } "export requirements --extra $extra"
     }
 
     Copy-Item (Join-Path $Root "packaging\windows\launcher\Safa.exe") `

@@ -107,6 +107,8 @@ def test_spa_index_served(tmp_path):
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
     assert 'id="root"' in r.text
+    # the shell names the hashed bundle: never let a browser keep an old one
+    assert r.headers.get("cache-control") == "no-cache"
 
 
 @needs_dist
@@ -213,3 +215,32 @@ def test_runs_from_other_cwd(tmp_path, monkeypatch):
         assert 'id="root"' in r.text
     else:
         assert "Frontend not built" in r.text
+
+
+def test_quiet_client_resets_only_drops_proactor_reset_noise():
+    """The browser aborting a media range request made Windows' Proactor
+    print 'Exception in callback ..._call_connection_lost ...
+    ConnectionResetError [WinError 10054]' — harmless noise. Only that is
+    dropped; every other loop error still reaches the default handler."""
+    from backend import main as main_mod
+
+    seen = []
+
+    class Loop:
+        def default_exception_handler(self, ctx):
+            seen.append(ctx)
+
+    noise = {
+        "message": "Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)",
+        "exception": ConnectionResetError(10054, "forcibly closed"),
+    }
+    main_mod._quiet_client_resets(Loop(), noise)
+    assert seen == []
+
+    other_reset = {"message": "Task exception was never retrieved",
+                   "exception": ConnectionResetError()}
+    real_bug = {"message": "Exception in callback x()",
+                "exception": RuntimeError("boom")}
+    for ctx in (other_reset, real_bug):
+        main_mod._quiet_client_resets(Loop(), ctx)
+    assert seen == [other_reset, real_bug]

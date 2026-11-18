@@ -222,6 +222,7 @@ export const en = {
     copy: "Save a copy…",
     all: "Save all to folder…",
     saving: "Saving {pct}%…",
+    choosing: "Choose where to save…",
     savingAll: "Saving {n} of {total}: {name}…",
     saved: "Saved",
     savedTo: "Saved to {folder}",

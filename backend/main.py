@@ -1,6 +1,7 @@
 """FastAPI app factory (SPEC §4/§5): init DB, mount API routers, serve SPA."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -161,8 +162,25 @@ def _mount_spa(app: FastAPI) -> None:
         if path == "api" or path.startswith("api/"):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         if index.is_file():
-            return FileResponse(index)
+            # no-cache: the shell names the hashed bundle; a cached shell
+            # kept running the OLD UI after an update/rebuild (seen live in
+            # v0.1.1 testing). /assets/* are content-hashed and stay cacheable.
+            return FileResponse(index, headers={"Cache-Control": "no-cache"})
         return HTMLResponse(_FALLBACK_HTML)
+
+
+def _quiet_client_resets(loop, context) -> None:
+    """Asyncio exception handler: drop ONLY the Windows Proactor noise
+    "Exception in callback _ProactorBasePipeTransport._call_connection_lost
+    ... ConnectionResetError [WinError 10054]" — the browser aborting a
+    media range request (seek, A/B switch, reload). Harmless, but it printed
+    a scary traceback into the server console. Everything else goes to the
+    default handler unchanged."""
+    exc = context.get("exception")
+    where = f"{context.get('message', '')} {context.get('handle', '')}"
+    if isinstance(exc, ConnectionResetError) and "_call_connection_lost" in where:
+        return
+    loop.default_exception_handler(context)
 
 
 @asynccontextmanager
@@ -172,6 +190,7 @@ async def _lifespan(app: FastAPI):
     the job interrupted)."""
     # R1 B3: kill worker processes the previous (crashed) server left
     # running *before* their job rows are marked interrupted.
+    asyncio.get_running_loop().set_exception_handler(_quiet_client_resets)
     app.state.supervisor.kill_orphan_workers()
     app.state.store.mark_interrupted_on_startup()
     app.state.supervisor.start()

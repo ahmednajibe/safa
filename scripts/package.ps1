@@ -145,10 +145,13 @@ $Req = Join-Path $TmpRoot "req-$Variant.txt"
 # extras (M10c §2) — `packaging/cpu` is gone.
 $Extra = if ($Variant -eq "gpu") { "cu124" } else { "cpu" }
 Invoke-Native {
-    uv export --frozen --no-dev --no-hashes --extra $Extra -o $Req
-} "uv export ($Variant) - run 'uv lock' first"
+    uv run --no-project python (Join-Path $Root "scripts\export_requirements.py") `
+        --extra $Extra --no-hashes -o $Req
+} "export requirements ($Variant) - run 'uv lock' first"
 $pipArgs = @(
     "pip", "install",
+    "--no-config",  # pyproject's [tool.uv] override would drop onnxruntime
+    "--no-deps",    # the export is the full locked closure - never re-resolve
     "--python", $StagePy,
     "--system",
     "--cache-dir", $env:UV_CACHE_DIR
@@ -172,8 +175,15 @@ $cudaVer = Get-PyProbe "import torch; print(torch.version.cuda)"
 $SitePkgs = Join-Path $Stage "python\Lib\site-packages"
 if ($Variant -eq "gpu") {
     if ($cudaVer -ne "12.4") { throw "gpu variant: torch.version.cuda=$cudaVer, expected 12.4" }
-    if (-not (Test-Path (Join-Path $SitePkgs "nvidia"))) {
-        throw "gpu variant: site-packages\nvidia missing"
+    # CUDA DLLs come from torch\lib on Windows (backend/core/gpu.py); the
+    # ~2.7 GB nvidia-* wheels are Linux-only now — their return is a size bug.
+    foreach ($dll in @("torch_cuda.dll", "cudnn64_9.dll", "cublas64_12.dll")) {
+        if (-not (Test-Path (Join-Path $SitePkgs "torch\lib\$dll"))) {
+            throw "gpu variant: torch\lib\$dll missing"
+        }
+    }
+    if (Test-Path (Join-Path $SitePkgs "nvidia")) {
+        throw "gpu variant: site-packages\nvidia present - duplicate CUDA wheels are back (pyproject markers?)"
     }
 } else {
     if ($cudaVer -ne "None") { throw "cpu variant: torch.version.cuda=$cudaVer, expected None" }

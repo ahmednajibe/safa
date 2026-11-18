@@ -8,7 +8,7 @@ import { revealSaved } from "../api/client";
 import type { Estimate, JobFile } from "../api/types";
 import { useT } from "../i18n";
 import { fmtEta, truncateMiddle } from "../lib/format";
-import { isTerminal, type MediaStatus } from "../state/reducers";
+import { isTerminal, saveKey, type MediaStatus } from "../state/reducers";
 import { useStore } from "../state/store";
 import { SegmentedControl } from "./SegmentedControl";
 import { Switch } from "./Switch";
@@ -76,15 +76,19 @@ function SaveCluster({ jobId, files }: { jobId: string; files: JobFile[] }) {
   return (
     <div className="save-cluster">
       {files.map((f) => {
-        const savingThis = job.saving?.name === f.name;
+        const savingThis =
+          job.saving?.jobId === jobId && job.saving.name === f.name;
+        const savedThis = !!job.saved[saveKey(jobId, f.name)];
         const busy = !!job.saving || !!job.savingAll;
         return (
           <span key={f.name} className="save-item">
             {savingThis ? (
               <button type="button" className="btn-primary" disabled>
-                {t.t(t.d.save.saving, {
-                  pct: t.num(Math.round((job.saving?.pct ?? 0) * 100)),
-                })}
+                {(job.saving?.pct ?? 0) < 0
+                  ? t.d.save.choosing
+                  : t.t(t.d.save.saving, {
+                      pct: t.num(Math.round((job.saving?.pct ?? 0) * 100)),
+                    })}
               </button>
             ) : f.saved_path ? (
               <button
@@ -95,7 +99,7 @@ function SaveCluster({ jobId, files }: { jobId: string; files: JobFile[] }) {
               >
                 {t.d.save.copy}
               </button>
-            ) : !job.saved[f.name] ? (
+            ) : !savedThis ? (
               <button
                 type="button"
                 className="btn-primary"
@@ -105,7 +109,7 @@ function SaveCluster({ jobId, files }: { jobId: string; files: JobFile[] }) {
                 {t.t(t.d.save.as, { kind: fileKindLabel(t, f) })}
               </button>
             ) : null}
-            {!savingThis && (job.saved[f.name] || f.saved_path) && (
+            {!savingThis && (savedThis || f.saved_path) && (
               <span className="pill">{t.d.save.saved}</span>
             )}
             {f.saved_path && (
@@ -127,7 +131,9 @@ function SaveCluster({ jobId, files }: { jobId: string; files: JobFile[] }) {
           disabled={!!job.saving || !!job.savingAll}
           onClick={() => void saveAll(store, jobId, files)}
         >
-          {job.savingAll
+          {job.savingAll?.jobId === jobId && job.savingAll.pct < 0
+            ? t.d.save.choosing
+            : job.savingAll?.jobId === jobId
             ? t.t(t.d.save.savingAll, {
                 n: t.num(job.savingAll.index + 1),
                 total: t.num(job.savingAll.total),
@@ -142,7 +148,7 @@ function SaveCluster({ jobId, files }: { jobId: string; files: JobFile[] }) {
           <bdi dir="ltr">{truncateMiddle(savedAnywhere, 46)}</bdi>
         </span>
       )}
-      {job.saveError && (
+      {job.saveError && (!job.saveError.jobId || job.saveError.jobId === jobId) && (
         <span className="save-note neg" role="alert">
           {t.msg(job.saveError.code, job.saveError.params, t.d.save.error)}
         </span>

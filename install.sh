@@ -239,7 +239,7 @@ if [ "$VARIANT" = "cuda" ]; then
         "ملف متطلبات CUDA مفقود في $DIR"
     mkdir -p "$DATA/tmp/uv-cache"
     UV_CACHE_DIR="$DATA/tmp/uv-cache" TMPDIR="$DATA/tmp" \
-        "$UVBIN" pip install --python "$PYBIN" --system \
+        "$UVBIN" pip install --no-config --no-deps --python "$PYBIN" --system \
             -r "$DIR/requirements-cu124.txt" --require-hashes \
             --extra-index-url "https://download.pytorch.org/whl/cu124" \
             --index-strategy unsafe-best-match \

@@ -81,7 +81,7 @@ def _fake_dist(tmp_path: Path) -> Path:
 
 def _run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
+        [sys.executable, str(SCRIPT), "--version", "0.1.0", *args],
         capture_output=True, text=True, timeout=60, cwd=ROOT,
     )
 

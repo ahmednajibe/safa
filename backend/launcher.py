@@ -246,6 +246,10 @@ def stale_build(root: Path) -> bool:
         p = fe / d
         if p.is_dir():
             for f in p.rglob("*"):
+                # *.test.ts(x) never reach the bundle — editing a test must
+                # not force a rebuild (which then needs npm on PATH)
+                if ".test." in f.name:
+                    continue
                 if f.is_file() and f.stat().st_mtime > stamp:
                     return True
     names = ("index.html", "vite.config.ts", "package.json",
@@ -536,12 +540,15 @@ def cmd_start(args) -> int:
                 bilingual("uv_sync_failed")
                 return 5
         if stale_build(ROOT):
-            if shutil.which("npm") is None:
+            # Full path: on Windows npm is npm.cmd — which() resolves it via
+            # PATHEXT, but CreateProcess("npm") does not (WinError 2).
+            npm = shutil.which("npm")
+            if npm is None:
                 bilingual("npm_missing")
                 return 6
             print("== frontend build ==", flush=True)
             rc = subprocess.run(
-                ["npm", "run", "build"],
+                [npm, "run", "build"],
                 cwd=str(ROOT / "frontend"),
             ).returncode
             if rc != 0:

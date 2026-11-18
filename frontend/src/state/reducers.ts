@@ -213,11 +213,29 @@ export interface JobState {
   previewRegion: PreviewRegion;
   /** ops snapshot when the last preview was submitted (stale check) */
   previewFingerprint: string | null;
-  /** per-file "Saved" marks for the active job */
+  /** "Saved" marks keyed by saveKey(jobId, name) — any job, not only the
+   *  active one (the History drawer saves non-active jobs too) */
   saved: Record<string, boolean>;
-  saving: { name: string; pct: number } | null;
-  savingAll: { index: number; total: number; name: string; pct: number } | null;
-  saveError: { code: string; params: Record<string, unknown> } | null;
+  /** the one save in flight (Dock or History drawer). Set BEFORE the
+   *  picker opens so a second click can't start a parallel save. */
+  saving: { jobId: string; name: string; pct: number } | null;
+  savingAll: {
+    jobId: string;
+    index: number;
+    total: number;
+    name: string;
+    pct: number;
+  } | null;
+  /** jobId null = not tied to a job's files (e.g. job submission failed) */
+  saveError: {
+    jobId: string | null;
+    code: string;
+    params: Record<string, unknown>;
+  } | null;
+}
+
+export function saveKey(jobId: string, name: string): string {
+  return `${jobId}/${name}`;
 }
 
 export const emptyJob: JobState = {
@@ -239,12 +257,20 @@ export type JobAction =
   | { type: "set-active"; job: Job | null }
   | { type: "preview-region"; region: PreviewRegion }
   | { type: "preview-submitted"; fingerprint: string }
-  | { type: "saving"; name: string; pct: number }
-  | { type: "saving-all"; index: number; total: number; name: string; pct: number }
-  | { type: "saved"; name: string }
+  | { type: "saving"; jobId: string; name: string; pct: number }
+  | {
+      type: "saving-all";
+      jobId: string;
+      index: number;
+      total: number;
+      name: string;
+      pct: number;
+    }
+  | { type: "saved"; jobId: string; name: string }
   | { type: "saved-all" }
   | {
       type: "save-error";
+      jobId?: string | null;
       error: { code: string; params: Record<string, unknown> } | null;
     }
   | { type: "set-compare"; jobId: string | null; kind: string | null }
@@ -260,9 +286,8 @@ export function jobReducer(s: JobState, a: JobAction): JobState {
         ...s,
         activeId: a.job.id,
         job: a.job,
-        saved: {},
-        saving: null,
-        savingAll: null,
+        // saved/saving are job-keyed now: a save of an older job from the
+        // History drawer keeps running and keeps its marks
         saveError: null,
       };
     case "job-update": {
@@ -289,11 +314,16 @@ export function jobReducer(s: JobState, a: JobAction): JobState {
     case "preview-submitted":
       return { ...s, previewFingerprint: a.fingerprint };
     case "saving":
-      return { ...s, saving: { name: a.name, pct: a.pct }, saveError: null };
+      return {
+        ...s,
+        saving: { jobId: a.jobId, name: a.name, pct: a.pct },
+        saveError: null,
+      };
     case "saving-all":
       return {
         ...s,
         savingAll: {
+          jobId: a.jobId,
           index: a.index,
           total: a.total,
           name: a.name,
@@ -302,13 +332,18 @@ export function jobReducer(s: JobState, a: JobAction): JobState {
         saveError: null,
       };
     case "saved": {
-      const saved = { ...s.saved, [a.name]: true };
+      const saved = { ...s.saved, [saveKey(a.jobId, a.name)]: true };
       return { ...s, saved, saving: null, saveError: null };
     }
     case "saved-all":
       return { ...s, savingAll: null, saveError: null };
     case "save-error":
-      return { ...s, saveError: a.error, saving: null, savingAll: null };
+      return {
+        ...s,
+        saveError: a.error ? { jobId: a.jobId ?? null, ...a.error } : null,
+        saving: null,
+        savingAll: null,
+      };
     case "set-compare":
       return { ...s, compareJobId: a.jobId, compareKind: a.kind };
     case "hydrate-latest":

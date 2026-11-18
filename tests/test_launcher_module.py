@@ -255,3 +255,24 @@ def test_cmd_start_does_not_leak_port_env(monkeypatch, capsys):
         ["--check-only", "--port", "8899"])
     launcher.cmd_start(args)
     assert os.environ.get("SOUND_SYSTEM_PORT") is None
+
+
+def test_stale_build_ignores_test_files(tmp_path):
+    """A new/edited *.test.tsx never reaches the bundle — it must not force
+    a rebuild (v0.1.1: that rebuild then crashed on the npm lookup)."""
+    root = tmp_path / "app"
+    fe = root / "frontend"
+    now = time.time()
+    _touch(fe / "dist" / "index.html", now)
+    _touch(fe / "src" / "main.tsx", now - 3600)
+    _touch(fe / "src" / "components" / "HistoryDrawer.test.tsx", now + 10)
+    assert launcher.stale_build(root) is False
+
+
+def test_frontend_build_runs_npm_by_full_path():
+    """On Windows npm is npm.cmd: shutil.which finds it via PATHEXT, but
+    subprocess.run(["npm", ...]) raises WinError 2 — run the resolved path."""
+    src = (Path(launcher.__file__)).read_text(encoding="utf-8")
+    assert '["npm", "run", "build"]' not in src
+    assert 'npm = shutil.which("npm")' in src
+    assert "[npm, \"run\", \"build\"]" in src

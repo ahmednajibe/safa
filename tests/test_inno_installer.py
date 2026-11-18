@@ -110,6 +110,21 @@ def test_gpu_slice_guard_present():
     assert "InitializeSetup" in text
 
 
+def test_gpu_slice_guard_works_without_slicecount():
+    """v0.1.0: a browser user downloads only the exe — no slicecount.txt —
+    and the guard silently skipped, so setup started and then showed Inno's
+    'insert disk' prompt. Slice 1 must be required regardless, and the
+    message must name the real file names."""
+    text = (INNO / "offline-gpu.iss").read_text(encoding="utf-8")
+    body = text[text.index("function InitializeSetup"):]
+    body = body[:body.index("\nend;")]
+    assert "N := 1;" in body
+    assert "exit;" not in body.split("Missing := '';")[0], (
+        "guard must not bail out when slicecount.txt is absent")
+    assert "win-x64-gpu-offline-setup-%d.bin" in text
+    assert "SliceName(I)" in body
+
+
 # ---- R2 #9: pre-existing data folders must survive install/uninstall --------------
 
 
@@ -173,3 +188,36 @@ def test_online_variant_page_defaults_to_detection():
     idx = text.index("procedure InitializeWizard")
     body = text[idx:idx + 2000]
     assert "GpuDetected" in body[body.index("VariantPage.Values"):]
+
+
+# ---- v0.1.1: live runtime progress in the online installer ----------------------
+
+
+def test_online_runtime_step_does_not_block_the_wizard():
+    """v0.1.0 ran install-runtime.ps1 with ewWaitUntilTerminated behind a
+    static page for 20-40 min (looked frozen). It must run ewNoWait and be
+    polled through the status file, with a working Cancel."""
+    text = (INNO / "online.iss").read_text(encoding="utf-8")
+    body = text[text.index("function RunRuntimeInstall"):]
+    body = body[:body.index("procedure CurStepChanged")]
+    assert "ewNoWait" in body
+    assert "ewWaitUntilTerminated, ResultCode);\n    if ResultCode" not in body
+    assert "-StatusFile" in body
+    assert "SetProgress(Overall, 1000)" in body
+    assert "taskkill" in body and "/T /F /PID" in body
+    assert "CancelButton.OnClick := @RuntimeCancelClick" in body
+    # Inno treats ANY line starting with '[' as a section header
+    for n, line in enumerate(text.splitlines(), 1):
+        if line.startswith("[") and not line.rstrip().endswith("]"):
+            raise AssertionError(f"online.iss:{n} starts with '[': {line!r}")
+
+
+def test_install_runtime_status_protocol_and_cache_cleanup():
+    s = (ROOT / "scripts" / "install-runtime.ps1").read_text(encoding="utf-8-sig")
+    assert "[string]$StatusFile" in s
+    # <pid>|<step>|<steps>|<done_mb>|<total_mb>|<eta_s>|<state>|<exit>
+    assert '"$PID|$Step|$Steps|$DoneMB|$TotalMB|$EtaS|$State|$Code"' in s
+    assert '"done"' in s and '"fail"' in s
+    # the multi-GB download cache is deleted after a good install
+    assert "Remove-Item -LiteralPath $env:UV_CACHE_DIR" in s
+    assert "if (-not $KeepCache)" in s

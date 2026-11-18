@@ -6,4 +6,4 @@ provisions the heavy runtime into a private env under the user data dir;
 ``safa`` then launches it on http://127.0.0.1:8790.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

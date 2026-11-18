@@ -1,8 +1,14 @@
 """CUDA DLL setup, GPU inventory, and VRAM sampling.
 
 Call ``setup_cuda_dlls()`` at worker start *before* importing onnxruntime /
-ctranslate2 / torch so the ``site-packages/nvidia/*/bin`` DLLs are visible
-(SPEC §8). Every function here must never raise — a missing GPU or missing
+ctranslate2 / torch so the CUDA DLLs are visible (SPEC §8): the
+``site-packages/nvidia/*/{bin,lib}`` wheels (Linux; older Windows installs)
+and, on Windows, the CUDA build of torch's own ``torch/lib`` — it already
+ships cuBLAS, cuDNN 9, cuFFT, cuRAND, cuSPARSE, cuSOLVER, NVRTC and the
+CUDA runtime, so v0.1.1+ Windows GPU installs no longer carry the ~2.7 GB
+duplicate nvidia-* wheels. ``PATH`` must get the dirs too: onnxruntime's
+CUDA provider DLL resolves its imports through ``PATH``, not
+``add_dll_directory``. Every function here must never raise — a missing GPU or missing
 nvidia packages is a normal state, not an error.
 """
 from __future__ import annotations
@@ -36,7 +42,8 @@ def _site_packages_dirs() -> list[Path]:
 
 def cuda_dll_dirs(is_nt: bool | None = None) -> list[Path]:
     """Existing ``<site-packages>/nvidia/*/{bin,lib}`` dirs — the nvidia-*
-    wheels put DLLs in ``bin`` on Windows and ``.so``s in ``lib`` on POSIX.
+    wheels put DLLs in ``bin`` on Windows and ``.so``s in ``lib`` on POSIX —
+    plus, on Windows, a CUDA torch's ``torch/lib`` (see module docstring).
     Read-only; never raises."""
     if is_nt is None:
         is_nt = os.name == "nt"
@@ -45,18 +52,38 @@ def cuda_dll_dirs(is_nt: bool | None = None) -> list[Path]:
     try:
         for sp in _site_packages_dirs():
             nvidia = sp / "nvidia"
-            if not nvidia.is_dir():
-                continue
-            for child in sorted(nvidia.iterdir()):
-                if (child / sub).is_dir():
-                    dirs.append(child / sub)
+            if nvidia.is_dir():
+                for child in sorted(nvidia.iterdir()):
+                    if (child / sub).is_dir():
+                        dirs.append(child / sub)
+            if is_nt:
+                tl = torch_cuda_lib_dir(sp)
+                if tl is not None and tl not in dirs:
+                    dirs.append(tl)
     except Exception:
         pass
     return dirs
 
 
+# A CUDA torch build on Windows: torch_cuda.dll + cuDNN 9 in torch/lib.
+# The CPU build has torch/lib too (but neither DLL) — never count it.
+_TORCH_CUDA_MARKERS = ("torch_cuda.dll", "cudnn64_9.dll", "cublas64_12.dll")
+
+
+def torch_cuda_lib_dir(site_packages: Path) -> Path | None:
+    """``<site-packages>/torch/lib`` when it holds a CUDA build's DLLs
+    (Windows layout), else ``None``. Never raises."""
+    try:
+        tl = Path(site_packages) / "torch" / "lib"
+        if all((tl / m).is_file() for m in _TORCH_CUDA_MARKERS):
+            return tl
+    except Exception:
+        pass
+    return None
+
+
 def setup_cuda_dlls(is_nt: bool | None = None) -> list[Path]:
-    """Add every ``<site-packages>/nvidia/*/{bin,lib}`` dir to the loader
+    """Add every ``cuda_dll_dirs()`` dir (nvidia-* wheels, Windows torch/lib) to the loader
     search path: ``os.add_dll_directory`` + ``PATH`` on Windows,
     ``LD_LIBRARY_PATH`` on POSIX (``PATH`` plays no role in ``.so``
     resolution there). Returns the dirs added; ``[]`` if none. Never raises.

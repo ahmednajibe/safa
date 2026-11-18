@@ -7,8 +7,6 @@ endpoints are covered by the Host/Origin middleware in ``main.py``.
 """
 from __future__ import annotations
 
-import threading
-
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Response
@@ -20,9 +18,6 @@ from backend.core.messages import MESSAGES as _MSG
 from backend.core.retention import RETENTION_CHOICES, retention_days
 
 router = APIRouter()
-
-# Single-flight: one native dialog at a time — a second POST gets 409.
-_PICK_LOCK = threading.Lock()
 
 
 class OutputDirBody(BaseModel):
@@ -83,7 +78,7 @@ def delete_output_dir(request: Request):
 @router.post("/api/settings/output-dir/pick")
 def pick_output_dir(request: Request):
     store = request.app.state.store
-    if not _PICK_LOCK.acquire(blocking=False):
+    if not output_dir.PICK_LOCK.acquire(blocking=False):
         return err(409, "picker_busy", _MSG["picker_busy"])
     try:
         try:
@@ -109,7 +104,7 @@ def pick_output_dir(request: Request):
             "message_params": {"path": str(resolved)},
         }
     finally:
-        _PICK_LOCK.release()
+        output_dir.PICK_LOCK.release()
 
 
 @router.post("/api/settings/output-dir/reveal")

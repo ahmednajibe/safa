@@ -302,6 +302,32 @@ export function pickOutputDir(): Promise<{
   return sendJson("POST", "/api/settings/output-dir/pick");
 }
 
+export interface ServerSaveResult {
+  status: "saved" | "cancelled";
+  path?: string;
+  folder?: string;
+}
+
+/** Native Save As window opened by the local server, which then copies the
+ *  output (v0.1.1 — Chrome's own File System Access picker cancelled the
+ *  save after the user pressed Save). 503 picker_unavailable = no GUI on
+ *  the server (Docker/headless). */
+export function saveJobFileOnServer(
+  jobId: string,
+  name: string,
+): Promise<ServerSaveResult> {
+  return sendJson(
+    "POST",
+    `/api/jobs/${id_encode(jobId)}/files/${encodeURIComponent(name)}/save-as`,
+    {},
+  );
+}
+
+/** Native folder window + copy every output into it (non-colliding names). */
+export function saveAllOnServer(jobId: string): Promise<ServerSaveResult> {
+  return sendJson("POST", `/api/jobs/${id_encode(jobId)}/save-all`, {});
+}
+
 export function revealSaved(jobId: string, name: string): Promise<unknown> {
   return sendJson(
     "POST",

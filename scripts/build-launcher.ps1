@@ -28,7 +28,8 @@ $Csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $Csc)) { throw "csc.exe not found at $Csc" }
 
 Write-Host "== csc Safa.cs -> Safa.exe =="
-& $Csc /nologo /target:winexe /platform:x64 /optimize+ `
+# /codepage:65001 - Safa.cs is BOM-less UTF-8 with Arabic string literals.
+& $Csc /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 `
     "/win32icon:$Ico" `
     "/out:$Exe" `
     $Cs

@@ -207,10 +207,11 @@ describe("jobReducer", () => {
 
   it("marks saved files and save progress", () => {
     let s = jobReducer(emptyJob, { type: "job-created", job: JOB });
-    s = jobReducer(s, { type: "saving", name: "a.wav", pct: 0.4 });
-    expect(s.saving).toEqual({ name: "a.wav", pct: 0.4 });
-    s = jobReducer(s, { type: "saved", name: "a.wav" });
-    expect(s.saved["a.wav"]).toBe(true);
+    s = jobReducer(s, { type: "saving", jobId: "j1", name: "a.wav", pct: 0.4 });
+    expect(s.saving).toEqual({ jobId: "j1", name: "a.wav", pct: 0.4 });
+    s = jobReducer(s, { type: "saved", jobId: "j1", name: "a.wav" });
+    expect(s.saved["j1/a.wav"]).toBe(true);
+    expect(s.saved["j2/a.wav"]).toBeUndefined(); // keyed per job
     expect(s.saving).toBeNull();
   });
 

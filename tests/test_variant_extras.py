@@ -2,7 +2,8 @@
 
 `cpu`     → +cpu torch trio from the pytorch cpu index (PyPI on
             darwin/aarch64 where no +cpu wheels exist).
-`cu124`   → +cu124 torch trio + nvidia-* wheels + onnxruntime-gpu
+`cu124`   → +cu124 torch trio + onnxruntime-gpu (+ nvidia-* wheels on
+            Linux only — Windows torch/lib already ships those DLLs)
             (PyPI torch + onnxruntime on darwin).
 no extra  → working CPU-capable baseline (PyPI torch).
 
@@ -111,6 +112,17 @@ def test_cu124_extra_selects_cuda_stack():
                    for l in _lines(out, pkg)), f"{pkg}: missing +cu124 line"
     assert any(l.startswith("onnxruntime-gpu") for l in out.splitlines())
     assert any(l.startswith("nvidia-cublas-cu12") for l in out.splitlines())
+
+
+def test_cu124_nvidia_wheels_are_linux_only():
+    """v0.1.1: on Windows the +cu124 torch wheel already bundles cuBLAS,
+    cuDNN 9, cuFFT... in torch/lib; the nvidia-* wheels were a ~2.7 GB
+    duplicate. Every nvidia line must be gated to Linux."""
+    out = _export("cu124")
+    nv = [l for l in out.splitlines() if l.startswith("nvidia-")]
+    assert nv
+    for l in nv:
+        assert "sys_platform == 'linux'" in l, f"not linux-gated: {l!r}"
 
 
 def test_exactly_one_ort_dist_per_platform():

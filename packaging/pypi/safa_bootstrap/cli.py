@@ -269,14 +269,18 @@ def install_deps(app: Path, variant: str, uv: str | None) -> None:
     index = _TORCH_INDEX[variant]
     if uv:
         subprocess.run(
-            [uv, "pip", "install", "--python", str(py), "--system",
+            # --no-config: a pyproject.toml nearby must not apply its
+            # [tool.uv] override (it drops onnxruntime) to the export.
+            # --no-deps: the export is the full locked closure; re-resolving
+            # trips over faster-whisper's `onnxruntime` vs onnxruntime-gpu.
+            [uv, "pip", "install", "--no-config", "--no-deps", "--python", str(py), "--system",
              "-r", str(req), "--require-hashes",
              "--extra-index-url", index,
              "--index-strategy", "unsafe-best-match"],
             check=True)
     else:
         subprocess.run(
-            [str(py), "-m", "pip", "install", "-r", str(req),
+            [str(py), "-m", "pip", "install", "-r", str(req), "--no-deps",
              "--require-hashes", "--extra-index-url", index],
             check=True)
 

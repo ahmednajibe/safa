@@ -46,6 +46,7 @@ def _compile(out_dir: Path) -> Path:
     icon = SRC / "safa.ico"
     args = [
         str(CSC), "/nologo", "/target:exe", "/platform:anycpu",
+        "/codepage:65001",  # Safa.cs is BOM-less UTF-8 with Arabic literals
         f"/out:{exe}", "/optimize+",
     ]
     if icon.is_file():
@@ -148,3 +149,4 @@ def test_exe_launcher_missing_python_exits_4(tmp_path):
     )
     assert r.returncode == 4
     assert "Python" in r.stdout
+    assert "بايثون" in r.stdout  # Arabic line too — stdout is UTF-8

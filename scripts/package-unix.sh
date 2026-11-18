@@ -54,9 +54,9 @@ echo "== package-unix $NAME (extra=$EXTRA) =="
 if [ "$DRY" = "1" ]; then
 cat <<EOF
 [dry-run] steps:
-  uv export --frozen --no-dev --extra cpu|cu124 -> \$STAGE/requirements-<extra>.txt (hashed)
+  scripts/export_requirements.py --extra cpu|cu124 -> \$STAGE/requirements-<extra>.txt (hashed)
   uv python install 3.11 --install-dir $PYROOT -> copy into \$STAGE/python
-  uv pip install --python \$STAGE/python/bin/python3 --system \
+  uv pip install --no-config --no-deps --python \$STAGE/python/bin/python3 --system \
       -r \$STAGE/requirements-$EXTRA.txt --require-hashes \
       --extra-index-url https://download.pytorch.org/whl/$EXTRA \
       --index-strategy unsafe-best-match
@@ -76,8 +76,9 @@ rm -rf "$STAGE"; mkdir -p "$STAGE"
 # $EXTRA's; BOTH requirements-cpu.txt and requirements-cu124.txt ship
 # in the tarball so install.sh --variant cuda can provision the cu124
 # runtime online (the cuda tarball itself can never publish).
-uv export --frozen --no-dev --extra cpu   -o "$STAGE/requirements-cpu.txt"
-uv export --frozen --no-dev --extra cu124 -o "$STAGE/requirements-cu124.txt"
+# scripts/export_requirements.py = uv export + the cpu onnxruntime swap.
+uv run --no-project python scripts/export_requirements.py --extra cpu   -o "$STAGE/requirements-cpu.txt"
+uv run --no-project python scripts/export_requirements.py --extra cu124 -o "$STAGE/requirements-cu124.txt"
 
 # Standalone Python 3.11 under $STAGE/python — same flow as package.ps1.
 uv python install 3.11 --install-dir "$PYROOT"
@@ -93,7 +94,8 @@ PY="$STAGE/python/bin/python3"
 
 # Wheels straight into the bundled python — hash-verified; the pytorch
 # index serves the +cpu/+cu124 builds ([tool.uv.sources] is project-only).
-uv pip install --python "$PY" --system \
+# --no-config: pyproject's [tool.uv] override would drop onnxruntime.
+uv pip install --no-config --no-deps --python "$PY" --system \
     -r "$STAGE/requirements-$EXTRA.txt" --require-hashes \
     --extra-index-url "https://download.pytorch.org/whl/$EXTRA" \
     --index-strategy unsafe-best-match

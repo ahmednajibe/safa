@@ -490,11 +490,101 @@ def download_file(request: Request, job_id: str, name: str):
     return resp
 
 
+class SaveAsBody(BaseModel):
+    """Empty JSON body on purpose: a JSON POST needs a CORS preflight, so a
+    foreign page can't fire this with a simple form/no-cors request (the
+    Host/Origin guard in main.py is the first line)."""
+
+    model_config = {"extra": "ignore"}
+
+
+@router.post("/api/jobs/{job_id}/files/{name}/save-as")
+def save_file_as(request: Request, job_id: str, name: str, body: SaveAsBody):
+    """v0.1.1 "Save as…": the server (on the user's own PC) shows the
+    native Save As window and copies the output to the chosen path. The
+    browser File System Access picker was cancelled by Chrome itself after
+    the user pressed Save (AbortError → no file), and doesn't exist in
+    Firefox. 503 ``picker_unavailable`` (no GUI: Docker/headless) tells the
+    frontend to fall back to a plain download."""
+    store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    if store.get(job_id) is None:
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    match = next(
+        (f for f in store.files(job_id) if f["name"] == name), None
+    )
+    if match is None:
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    src = Path(match["path"])
+    if not src.is_file():
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    if not output_dir.PICK_LOCK.acquire(blocking=False):
+        return err(409, "picker_busy", _MSG["picker_busy"])
+    try:
+        try:
+            chosen = output_dir.run_save_as(match["name"])
+        except output_dir.PickerUnavailable:
+            return err(503, "picker_unavailable", _MSG["picker_unavailable"])
+        if not chosen:
+            return {"status": "cancelled"}
+        try:
+            target = output_dir.validate_save_target(chosen, src.suffix)
+        except output_dir.OutputDirInvalid:
+            return err(422, "output_dir_invalid", _MSG["output_dir_invalid"])
+        try:
+            output_dir.copy_to(src, target)
+        except OSError:
+            return err(500, "save_failed", _MSG["save_failed"])
+        store.set_saved_path(job_id, match["name"], target)
+        return {"status": "saved", "path": str(target)}
+    finally:
+        output_dir.PICK_LOCK.release()
+
+
+@router.post("/api/jobs/{job_id}/save-all")
+def save_all_files(request: Request, job_id: str, body: SaveAsBody):
+    """v0.1.1 "Save all to folder…": the server's native folder window
+    opens once and every job output is copied into it under non-colliding
+    names (``name (2).ext``). Same contract as ``save-as`` — the frontend
+    falls back to per-file browser downloads on 503 ``picker_unavailable``.
+    """
+    store = _store(request)
+    if _bad_id(job_id):
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    if store.get(job_id) is None:
+        return err(404, "job_not_found", _MSG["job_not_found"])
+    if not output_dir.PICK_LOCK.acquire(blocking=False):
+        return err(409, "picker_busy", _MSG["picker_busy"])
+    try:
+        try:
+            picked = output_dir.run_picker()
+        except output_dir.PickerUnavailable:
+            return err(503, "picker_unavailable", _MSG["picker_unavailable"])
+        if not picked:
+            return {"status": "cancelled"}
+        try:
+            folder = output_dir.validate_output_dir(
+                picked, allow_drive_root=True
+            )
+        except output_dir.OutputDirInvalid:
+            return err(422, "output_dir_invalid", _MSG["output_dir_invalid"])
+        try:
+            for f in store.files(job_id):
+                target = output_dir._auto_copy(Path(f["path"]), folder)
+                store.set_saved_path(job_id, f["name"], target)
+        except OSError:
+            return err(500, "save_failed", _MSG["save_failed"])
+        return {"status": "saved", "folder": str(folder)}
+    finally:
+        output_dir.PICK_LOCK.release()
+
+
 @router.post("/api/jobs/{job_id}/files/{name}/reveal")
 def reveal_file(request: Request, job_id: str, name: str):
-    """'Show in folder': select the auto-saved copy in File Explorer
-    (SPEC §12). Only meaningful when ``job_files.saved_path`` exists —
-    a manually saved file's location is invisible to the browser."""
+    """'Show in folder': select the saved copy in File Explorer
+    (SPEC §12). ``job_files.saved_path`` records where auto-save, Save As
+    or Save all put the file — without it there is nothing to reveal."""
     store = _store(request)
     if _bad_id(job_id):
         return err(404, "job_not_found", _MSG["job_not_found"])

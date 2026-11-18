@@ -6,19 +6,16 @@ import {
   cancelJob,
   createJob,
   deleteMedia,
+  getJob,
   getMedia,
   retryJob,
+  saveAllOnServer,
+  saveJobFileOnServer,
   uploadMedia,
 } from "./api/client";
 import { ApiError } from "./api/types";
 import type { Job, MediaInfo } from "./api/types";
-import {
-  canPickDir,
-  canPickFiles,
-  downloadJobFile,
-  saveAllToFolder,
-  saveJobFileAs,
-} from "./lib/save";
+import { downloadJobFile } from "./lib/save";
 import { isMediaReady } from "./lib/media";
 import type { Store } from "./state/store";
 
@@ -167,60 +164,90 @@ export async function adoptJob(
 
 /* ---------- saving ---------- */
 
-/** "Save X…" / fallback "Download X" for one job output file. */
+/** Show the job's fresh `files` (saved_path → "Show in folder"). */
+async function refreshSavedFiles(store: Store, jobId: string): Promise<void> {
+  if (store.job.activeId !== jobId) return; // History refreshes on open
+  try {
+    store.dispatchJob({ type: "job-update", job: await getJob(jobId) });
+  } catch {
+    /* the save itself succeeded */
+  }
+}
+
+function serverSaveFailed(
+  store: Store,
+  jobId: string,
+  e: unknown,
+): "fallback" | "handled" {
+  const code = (e as ApiError)?.code;
+  if (code === "picker_unavailable") return "fallback";
+  store.dispatchJob({
+    type: "save-error",
+    jobId,
+    error: { code: code || "save_failed", params: {} },
+  });
+  return "handled";
+}
+
+/** "Save X…" for one job output: the local server opens the native Save As
+ *  window and copies the file (works in every browser). No GUI on the
+ *  server (Docker/headless) → plain browser download instead. */
 export async function saveOne(
   store: Store,
   jobId: string,
   file: { name: string; size_bytes: number },
 ): Promise<void> {
   const { dispatchJob } = store;
-  if (!canPickFiles()) {
-    downloadJobFile(jobId, file.name);
-    dispatchJob({ type: "saved", name: file.name });
+  if (store.job.saving || store.job.savingAll) return; // one save at a time
+  // pct -1 = the native window is open ("Choose where to save…")
+  dispatchJob({ type: "saving", jobId, name: file.name, pct: -1 });
+  try {
+    const r = await saveJobFileOnServer(jobId, file.name);
+    if (r.status === "saved") {
+      dispatchJob({ type: "saved", jobId, name: file.name });
+      await refreshSavedFiles(store, jobId);
+    } else {
+      dispatchJob({ type: "save-error", jobId, error: null }); // cancelled
+    }
     return;
+  } catch (e) {
+    if (serverSaveFailed(store, jobId, e) === "handled") return;
   }
-  const outcome = await saveJobFileAs(jobId, file.name, file.size_bytes, (pct) =>
-    dispatchJob({ type: "saving", name: file.name, pct }),
-  );
-  if (outcome === "saved") dispatchJob({ type: "saved", name: file.name });
-  else if (outcome === "aborted") dispatchJob({ type: "save-error", error: null });
-  else dispatchJob({ type: "save-error", error: { code: "save_failed", params: {} } });
+  downloadJobFile(jobId, file.name);
+  dispatchJob({ type: "saved", jobId, name: file.name });
 }
 
-/** "Save all to folder…" — streams every output into the picked dir. */
+/** "Save all to folder…": native folder window on the server, every output
+ *  copied in (never overwriting: `<stem> (2).<ext>`). */
 export async function saveAll(
   store: Store,
   jobId: string,
   files: { name: string; size_bytes: number }[],
 ): Promise<void> {
   const { dispatchJob } = store;
-  if (!canPickDir()) {
-    for (const f of files) downloadJobFile(jobId, f.name);
-    dispatchJob({ type: "saved-all" });
-    return;
-  }
-  const outcome = await saveAllToFolder(
+  if (store.job.saving || store.job.savingAll) return; // one save at a time
+  dispatchJob({
+    type: "saving-all",
     jobId,
-    files,
-    (name, i) =>
-      dispatchJob({
-        type: "saving-all",
-        index: i,
-        total: files.length,
-        name,
-        pct: 0,
-      }),
-    (pct) => {
-      const cur = store.job.savingAll;
-      if (cur) dispatchJob({ type: "saving-all", ...cur, pct });
-    },
-  );
-  if (outcome === "saved") {
-    dispatchJob({ type: "saved-all" });
-    for (const f of files) dispatchJob({ type: "saved", name: f.name });
-  } else if (outcome === "aborted") {
-    dispatchJob({ type: "save-error", error: null });
-  } else {
-    dispatchJob({ type: "save-error", error: { code: "save_failed", params: {} } });
+    index: 0,
+    total: files.length,
+    name: files[0]?.name ?? "",
+    pct: -1,
+  });
+  try {
+    const r = await saveAllOnServer(jobId);
+    if (r.status === "saved") {
+      dispatchJob({ type: "saved-all" });
+      for (const f of files) dispatchJob({ type: "saved", jobId, name: f.name });
+      await refreshSavedFiles(store, jobId);
+    } else {
+      dispatchJob({ type: "save-error", jobId, error: null });
+    }
+    return;
+  } catch (e) {
+    if (serverSaveFailed(store, jobId, e) === "handled") return;
   }
+  for (const f of files) downloadJobFile(jobId, f.name);
+  dispatchJob({ type: "saved-all" });
+  for (const f of files) dispatchJob({ type: "saved", jobId, name: f.name });
 }
