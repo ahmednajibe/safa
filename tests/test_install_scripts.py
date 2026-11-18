@@ -58,6 +58,52 @@ def test_install_runtime_requires_hashes():
     assert "--require-hashes" in text
 
 
+@pytest.mark.skipif(PS is None or sys.platform != "win32",
+                    reason="windows powershell only")
+def test_install_runtime_smuggled_quote_arg_exits_3(tmp_path):
+    """v0.1.1 bug: a drive-root data folder produced -DataDir "F:\" on
+    the Inno command line — \" escaped the quote, so the script received
+    DataDir='F:" -StatusFile …' (one arg, literal quote inside) and died
+    BEFORE Start-Transcript, leaving no log anywhere. Now a quote inside
+    a path arg must exit 3 and write %TEMP%\\safa-install-args.log."""
+    env = dict(os.environ)
+    env["TEMP"] = str(tmp_path)
+    env["TMP"] = str(tmp_path)
+    r = subprocess.run(
+        [PS, "-NoProfile", "-ExecutionPolicy", "Bypass",
+         "-File", str(ROOT / "scripts" / "install-runtime.ps1"),
+         "-Variant", "cpu",
+         "-AppDir", str(tmp_path / "app"),
+         "-DataDir", 'X" -StatusFile y'],
+        capture_output=True, text=True, timeout=60, env=env,
+        encoding="utf-8", errors="replace")
+    assert r.returncode == 3, r.stdout + r.stderr
+    log = tmp_path / "safa-install-args.log"
+    assert log.is_file()
+    assert "quote" in log.read_text(
+        encoding="utf-8", errors="replace").lower()
+
+
+@pytest.mark.skipif(PS is None or sys.platform != "win32",
+                    reason="windows powershell only")
+def test_install_runtime_uncreatable_datadir_leaves_fallback(tmp_path):
+    """A -DataDir that cannot be created also dies before the transcript —
+    it must still leave the %TEMP% fallback log, not vanish silently."""
+    env = dict(os.environ)
+    env["TEMP"] = str(tmp_path)
+    env["TMP"] = str(tmp_path)
+    r = subprocess.run(
+        [PS, "-NoProfile", "-ExecutionPolicy", "Bypass",
+         "-File", str(ROOT / "scripts" / "install-runtime.ps1"),
+         "-Variant", "cpu",
+         "-AppDir", str(tmp_path / "app"),
+         "-DataDir", "D:\\bad|dir"],
+        capture_output=True, text=True, timeout=60, env=env,
+        encoding="utf-8", errors="replace")
+    assert r.returncode == 3, r.stdout + r.stderr
+    assert (tmp_path / "safa-install-args.log").is_file()
+
+
 def test_ps1_nonascii_files_have_utf8_bom():
     """PS 5.1 parses a BOM-less .ps1 as ANSI — a non-ASCII char (Arabic,
     em-dash) then mojibakes and can corrupt later string tokens

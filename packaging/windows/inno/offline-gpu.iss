@@ -128,6 +128,14 @@ begin
   CreateDataDirPage(wpSelectDir);
 end;
 
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  { show the folder the install will really use (F:\ -> F:\Safa) }
+  if Assigned(DataDirPage) and (CurPageID = DataDirPage.ID) then
+    DataDirPage.Values[0] := NormalizeDataDir(DataDirPage.Values[0]);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then

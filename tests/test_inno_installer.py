@@ -11,7 +11,13 @@ is the real silent install/uninstall run done during release builds:
   app dir does not linger;
 - the kept-folder path is shown to the user (bilingual).
 """
+import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 INNO = ROOT / "packaging" / "windows" / "inno"
@@ -221,3 +227,147 @@ def test_install_runtime_status_protocol_and_cache_cleanup():
     # the multi-GB download cache is deleted after a good install
     assert "Remove-Item -LiteralPath $env:UV_CACHE_DIR" in s
     assert "if (-not $KeepCache)" in s
+
+
+# ---- v0.1.2: a drive-root data folder broke the online install -------------------
+#
+# Safa-0.1.1 with data folder F:\ produced  -DataDir "F:\" -StatusFile "…".
+# CommandLineToArgvW reads \" as an escaped quote, so install-runtime.ps1
+# received  DataDir=[F:" -StatusFile C:\tmp\s.txt]  and  StatusFile=[]  and
+# died before Start-Transcript — no install.log, no status line, no clue.
+
+
+def _quote_arg(s: str) -> str:
+    """Python mirror of QuoteArg() in common.iss — keep them in sync:
+    '"' + s + '"', doubling every run of backslashes that precedes a '"'
+    (an embedded quote or the closing quote appended at the end)."""
+    r = '"'
+    i = 0
+    while i < len(s):
+        if s[i] == "\\":
+            n = 0
+            while True:
+                if i >= len(s):
+                    at_quote = True      # the closing quote follows
+                    break
+                if s[i] != "\\":
+                    at_quote = s[i] == '"'
+                    break
+                n += 1
+                i += 1
+            if at_quote:
+                n *= 2
+            r += "\\" * n
+        elif s[i] == '"':
+            r += '\\"'
+            i += 1
+        else:
+            r += s[i]
+            i += 1
+    return r + '"'
+
+
+def test_quote_arg_unit_cases():
+    """CommandLineToArgvW quoting: a backslash run doubles only when a
+    quote follows it — most importantly the run before the closing '"'."""
+    assert _quote_arg("F:\\") == '"F:\\\\"'
+    assert _quote_arg("C:\\") == '"C:\\\\"'
+    assert _quote_arg("D:\\Data\\") == '"D:\\Data\\\\"'
+    assert _quote_arg("D:\\Data") == '"D:\\Data"'
+    assert _quote_arg("D:\\a b\\c") == '"D:\\a b\\c"'
+    assert _quote_arg("\\\\srv\\share") == '"\\\\srv\\share"'
+    assert _quote_arg('a"b') == '"a\\"b"'
+
+
+def test_quote_arg_helper_exists_in_common():
+    assert "function QuoteArg" in COMMON
+
+
+def test_online_powershell_path_args_go_through_quote_arg():
+    """All four path args of the install-runtime.ps1 command line must be
+    QuoteArg'd — the bare -DataDir "F:\\" is what broke v0.1.1."""
+    text = (INNO / "online.iss").read_text(encoding="utf-8")
+    body = text[text.index("Params :="):]
+    body = body[:body.index("Exec(")]
+    for flag in ("-File", "-AppDir", "-DataDir", "-StatusFile"):
+        assert re.search(
+            re.escape(flag) + r" '\s*\+\s*QuoteArg\(", body), flag
+
+
+def test_safa_data_dir_never_returns_a_bare_root():
+    """F:\\ (or F:, or a UNC share root \\\\srv\\share) must become
+    <root>\\Safa and trailing backslashes must be stripped — the wizard
+    page, /DATADIR= and every variant share SafaDataDir."""
+    idx = COMMON.index("function SafaDataDir")
+    body = COMMON[idx:COMMON.index("\nend;", idx)]
+    assert "NormalizeDataDir" in body
+    nidx = COMMON.index("function NormalizeDataDir")
+    nbody = COMMON[nidx:COMMON.index("\nend;", nidx)]
+    assert "RemoveBackslashUnlessRoot" in nbody
+    assert "IsBareRoot" in nbody
+    assert "+ 'Safa'" in nbody
+    ridx = COMMON.index("function IsBareRoot")
+    rbody = COMMON[ridx:COMMON.index("\nend;", ridx)]
+    assert "S[2] = ':'" in rbody           # drive-root check: 'X:' / 'X:\'
+    assert "S[1] = '\\'" in rbody          # UNC share root \\server\share
+
+
+def test_data_dir_page_appends_safa_on_browse():
+    """AppendDir=True + 'Safa': Browse then appends 'Safa' the way Inno's
+    own app-dir page does. Values[0] is set directly (no browse), so the
+    default {localappdata}\\Safa is not doubled on first show."""
+    idx = COMMON.index("CreateInputDirPage(")
+    call = COMMON[idx:COMMON.index(");", idx)]
+    assert "True, 'Safa'" in call
+
+
+def test_wizard_writes_back_normalized_data_dir():
+    """Every variant's NextButtonClick normalizes the visible value so the
+    page shows the folder the install will really use (F:\\ -> F:\\Safa)."""
+    for iss in ("online.iss", "offline-cpu.iss", "offline-gpu.iss"):
+        text = (INNO / iss).read_text(encoding="utf-8")
+        idx = text.index("function NextButtonClick")
+        body = text[idx:idx + 700]
+        assert "Assigned(DataDirPage)" in body, iss
+        assert "DataDirPage.Values[0] := NormalizeDataDir" in body, iss
+
+
+PS_EXE = shutil.which("powershell")
+
+_ARGTEST_PS1 = """\
+param(
+    [Parameter(Mandatory = $true)][string]$AppDir,
+    [Parameter(Mandatory = $true)][string]$DataDir,
+    [Parameter(Mandatory = $true)][string]$StatusFile
+)
+[System.IO.File]::WriteAllText($StatusFile, "APPDIR=[$AppDir]`nDATADIR=[$DataDir]`n")
+"""
+
+
+@pytest.mark.skipif(sys.platform != "win32" or PS_EXE is None,
+                    reason="needs Windows + powershell.exe")
+def test_quote_arg_roundtrip_through_powershell(tmp_path):
+    """Runs a flat powershell.exe -File command line through the real
+    Windows argv parser — the one place a STRING command is required:
+    Inno's Exec() hands over a single command line, and a subprocess list
+    would re-quote the args and hide exactly the bug being tested."""
+    script = tmp_path / "argtest.ps1"
+    script.write_text(_ARGTEST_PS1, encoding="utf-8-sig")
+    appdir = "C:\\Program Files\\Safa"
+    status = tmp_path / "status.txt"
+    for datadir in ("F:\\", "C:\\", "D:\\Data\\",
+                    "D:\\مجلد عربي\\Safa", "D:\\a b\\c"):
+        status.unlink(missing_ok=True)
+        cmdline = (
+            _quote_arg(PS_EXE)
+            + " -NoProfile -ExecutionPolicy Bypass -File "
+            + _quote_arg(str(script))
+            + " -AppDir " + _quote_arg(appdir)
+            + " -DataDir " + _quote_arg(datadir)
+            + " -StatusFile " + _quote_arg(str(status))
+        )
+        r = subprocess.run(cmdline, capture_output=True, timeout=60)
+        assert r.returncode == 0, (datadir, r.stderr)
+        got = status.read_text(encoding="utf-8-sig")
+        assert f"DATADIR=[{datadir}]" in got, (datadir, got)
+        assert f"APPDIR=[{appdir}]" in got

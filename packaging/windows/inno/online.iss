@@ -206,6 +206,10 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  { show the folder the install will really use before the user moves
+    on — a typed F:\ becomes F:\Safa, a trailing '\' is stripped }
+  if Assigned(DataDirPage) and (CurPageID = DataDirPage.ID) then
+    DataDirPage.Values[0] := NormalizeDataDir(DataDirPage.Values[0]);
   if Assigned(VariantPage) and (CurPageID = VariantPage.ID) then
     if GpuDetected and not VariantPage.Values[0] then
       Log('user overrode detected GPU -> cpu variant');
@@ -288,12 +292,15 @@ begin
   WizardForm.CancelButton.OnClick := @RuntimeCancelClick;
   WizardForm.CancelButton.Enabled := True;
   try
-    Params := '-NoProfile -ExecutionPolicy Bypass -File "'
-      + ExpandConstant('{app}\scripts\install-runtime.ps1')
-      + '" -Variant ' + SelectedVariant()
-      + ' -AppDir "' + ExpandConstant('{app}')
-      + '" -DataDir "' + SafaDataDir()
-      + '" -StatusFile "' + StatusPath + '"';
+    { every path goes through QuoteArg: a naive '"' wrap breaks on any
+      trailing backslash (-DataDir "F:\" ate the rest of the line in
+      v0.1.1 — the runtime then failed before writing install.log) }
+    Params := '-NoProfile -ExecutionPolicy Bypass -File '
+      + QuoteArg(ExpandConstant('{app}\scripts\install-runtime.ps1'))
+      + ' -Variant ' + SelectedVariant()
+      + ' -AppDir ' + QuoteArg(ExpandConstant('{app}'))
+      + ' -DataDir ' + QuoteArg(SafaDataDir())
+      + ' -StatusFile ' + QuoteArg(StatusPath);
     if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
                 Params, ExpandConstant('{app}'), SW_HIDE,
                 ewNoWait, ResultCode) then

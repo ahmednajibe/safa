@@ -34,6 +34,25 @@ param(
     [string]$StatusFile = "",
     [switch]$KeepCache
 )
+
+# A misquoted command line lands a literal '"' inside a path argument
+# (v0.1.1: -DataDir "F:\" — the \" escaped the closing quote and $DataDir
+# swallowed the rest of the line, so the script died before the transcript
+# and left no log anywhere). No valid Windows path contains a quote:
+# bail out before anything can throw, and leave a log OUTSIDE $DataDir so
+# it is findable even when -DataDir itself is garbage.
+$FallbackLog = "$env:TEMP\safa-install-args.log"
+if ($AppDir.Contains('"') -or $DataDir.Contains('"')) {
+    try {
+        [System.IO.File]::WriteAllText($FallbackLog, (
+            "Safa runtime install: a quote character arrived inside a " +
+            "path argument — the installer's command line was misquoted " +
+            "(old setup.exe bug). Nothing was installed.`r`n" +
+            "AppDir : $AppDir`r`nDataDir: $DataDir`r`n"))
+    } catch { }
+    exit 3
+}
+
 $ErrorActionPreference = "Stop"
 
 # Bytes in uv cache + python tree once step 2 is finished, measured on a
@@ -43,8 +62,18 @@ $ExpectedMB = @{ "cpu" = 3500; "cu124" = 11600 }
 $Steps = 3
 
 $LogDir = Join-Path $DataDir "logs"
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "tmp") | Out-Null
+try {
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "tmp") | Out-Null
+} catch {
+    # still before Start-Transcript — the fallback log is all we can leave
+    try {
+        [System.IO.File]::WriteAllText($FallbackLog, (
+            "Safa runtime install: cannot create folders under " +
+            "-DataDir '$DataDir': $_`r`n"))
+    } catch { }
+    exit 3
+}
 $env:UV_CACHE_DIR = Join-Path $DataDir "tmp\uv-cache"
 $env:TEMP = Join-Path $DataDir "tmp"
 $env:TMP = $env:TEMP

@@ -88,10 +88,101 @@ begin
   Result := R;
 end;
 
+{ Command-line quoting for Exec() params, per CommandLineToArgvW:
+  '"' + S + '"' with every run of backslashes that precedes a '"' — an
+  embedded quote or the closing quote we append — doubled. A bare
+  -DataDir "F:\" once ate its closing quote and the rest of the line
+  (v0.1.1 drive-root bug). Paths cannot contain '"', but the embedded
+  case is handled anyway so this is correct for any string. }
+function QuoteArg(const S: string): string;
+var
+  I, N: Integer;
+  AtQuote: Boolean;
+begin
+  Result := '"';
+  I := 1;
+  while I <= Length(S) do
+  begin
+    if S[I] = '\' then
+    begin
+      N := 0;
+      AtQuote := False;
+      while True do
+      begin
+        if I > Length(S) then
+        begin
+          AtQuote := True;   { the closing quote follows }
+          break;
+        end;
+        if S[I] <> '\' then
+        begin
+          AtQuote := S[I] = '"';
+          break;
+        end;
+        N := N + 1;
+        I := I + 1;
+      end;
+      if AtQuote then
+        N := N * 2;
+      while N > 0 do
+      begin
+        Result := Result + '\';
+        N := N - 1;
+      end;
+    end
+    else if S[I] = '"' then
+    begin
+      Result := Result + '\"';
+      I := I + 1;
+    end
+    else
+    begin
+      Result := Result + S[I];
+      I := I + 1;
+    end;
+  end;
+  Result := Result + '"';
+end;
+
 function DataDirParam(): string;
 begin
   Result := ExpandConstant('{param:DATADIR|}');
   if Result <> '' then Result := ExpandFileName(Result);
+end;
+
+{ True for a bare root we must never use as the data folder itself:
+  a drive root (X:\ or X:) or a UNC share root (\\server\share). }
+function IsBareRoot(const S: string): Boolean;
+var
+  P: Integer;
+begin
+  Result := False;
+  if Length(S) = 2 then
+    Result := S[2] = ':'
+  else if Length(S) = 3 then
+    Result := (S[2] = ':') and (S[3] = '\')
+  else if Length(S) > 4 then
+    if (S[1] = '\') and (S[2] = '\') then
+    begin
+      { \\server\share — exactly one '\' between server and share;
+        checked on the de-backslashed form so a typed \\srv\share\
+        (which RemoveBackslashUnlessRoot keeps) still counts }
+      P := Pos('\', Copy(RemoveBackslash(S), 3, MaxInt));
+      if P > 1 then
+        Result := Pos('\', Copy(RemoveBackslash(S), 3 + P, MaxInt)) = 0;
+    end;
+end;
+
+{ The data folder is never a bare root: F:\ or F: becomes F:\Safa and
+  \\server\share becomes \\server\share\Safa — the app's loose files
+  must not land in a drive top-level, and a quoted root arg is what
+  broke the online installer's argv line (v0.1.1). Trailing backslashes
+  are stripped too, so 'D:\Data\' and 'D:\Data' are the same folder. }
+function NormalizeDataDir(S: string): string;
+begin
+  Result := RemoveBackslashUnlessRoot(Trim(S));
+  if IsBareRoot(Result) then
+    Result := AddBackslash(Result) + 'Safa';
 end;
 
 function SafaDataDir(): string;
@@ -101,6 +192,7 @@ begin
     Result := DataDirPage.Values[0];
   if Result = '' then
     Result := ExpandConstant('{localappdata}\Safa');
+  Result := NormalizeDataDir(Result);
 end;
 
 procedure CreateDataDirPage(AfterID: Integer);
@@ -110,9 +202,11 @@ begin
     CustomMessage('DataPageCaption'),
     CustomMessage('DataPageDescription'),
     CustomMessage('DataPageSubCaption'),
-    False, '');
+    True, 'Safa');
   DataDirPage.Add(ExpandConstant('{cm:BrowseData}'));
-  DataDirPage.Values[0] := DataDirParam();
+  { Values[0] is set directly — AppendDir only acts on a folder picked
+    through Browse, so this default is shown as-is, never doubled. }
+  DataDirPage.Values[0] := NormalizeDataDir(DataDirParam());
   if DataDirPage.Values[0] = '' then
     DataDirPage.Values[0] := ExpandConstant('{localappdata}\Safa');
 end;
